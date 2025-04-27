@@ -73,7 +73,10 @@ contract DevEscrow is
         address _milestoneAuthorizer,
         address _pauser
     ) public initializer {
-        if (_usdcToken == address(0) || _developer == address(0) || _fundingSource == address(0) || _milestoneAuthorizer == address(0) || _pauser == address(0)) {
+        if (
+            _usdcToken == address(0) || _developer == address(0) || _fundingSource == address(0)
+                || _milestoneAuthorizer == address(0) || _pauser == address(0)
+        ) {
             revert Errors.ZeroAddressNotAllowed();
         }
         if (_totalAllocated == 0) revert Errors.AmountCannotBeZero();
@@ -249,7 +252,12 @@ contract DevEscrow is
         return totalWithdrawn;
     }
 
-    function getMilestone(uint8 index) external view override returns (uint256 amount, bool authorized, bool withdrawn) {
+    function getMilestone(uint8 index)
+        external
+        view
+        override
+        returns (uint256 amount, bool authorized, bool withdrawn)
+    {
         if (index >= milestoneCount) return (0, false, false);
         Milestone storage m = milestones[index];
         return (m.amount, m.authorized, m.withdrawn);
@@ -283,7 +291,13 @@ contract DevEscrow is
     }
 
     // --- Access Control Overrides ---
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

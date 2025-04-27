@@ -95,10 +95,9 @@ interface IDevEscrow {
      */
     function getDeveloper() external view returns (address);
 
-     /**
+    /**
      * @notice Gets the funding source address associated with this escrow (Vault or PoolManager).
      * @return address The funding source's address.
      */
     function getFundingSource() external view returns (address);
-
-} 
+}

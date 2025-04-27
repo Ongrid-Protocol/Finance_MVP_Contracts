@@ -78,4 +78,4 @@ interface IDeveloperDepositEscrow {
      * @return bool True if the deposit has been released, false otherwise.
      */
     function isDepositSettled(uint256 projectId) external view returns (bool);
-} 
+}

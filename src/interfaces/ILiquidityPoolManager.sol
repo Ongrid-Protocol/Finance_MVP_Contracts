@@ -15,7 +15,7 @@ interface ILiquidityPoolManager {
         string name;
         uint256 totalAssets; // Total USDC held by the pool (invested + available)
         uint256 totalShares; // Total LP shares issued for the pool
-        // Potentially add risk parameters, admin settings etc.
+            // Potentially add risk parameters, admin settings etc.
     }
 
     struct LoanRecord {
@@ -29,7 +29,7 @@ interface ILiquidityPoolManager {
         uint256 interestAccrued; // Interest accrued/repaid so far (Simplified tracking for MVP)
         uint64 startTime; // Timestamp when the loan was funded
         bool isActive; // Flag if the loan is ongoing
-        // Maybe add metadataCID if needed here
+            // Maybe add metadataCID if needed here
     }
 
     // Project parameters passed from ProjectFactory
@@ -37,8 +37,8 @@ interface ILiquidityPoolManager {
         uint256 loanAmountRequested;
         uint48 requestedTenor; // in days
         string metadataCID;
-        // Add other relevant fields from ProjectFactory if needed
     }
+    // Add other relevant fields from ProjectFactory if needed
 
     // --- Events ---
     event PoolCreated(uint256 indexed poolId, string name, address indexed creator);
@@ -113,9 +113,11 @@ interface ILiquidityPoolManager {
      * @return principalPaid The portion of the repayment allocated to principal.
      * @return interestPaid The portion of the repayment allocated to interest.
      */
-    function handleRepayment(uint256 poolId, uint256 projectId, uint256 netAmountReceived) external returns (uint256 principalPaid, uint256 interestPaid);
+    function handleRepayment(uint256 poolId, uint256 projectId, uint256 netAmountReceived)
+        external
+        returns (uint256 principalPaid, uint256 interestPaid);
 
-     /**
+    /**
      * @notice Updates the Annual Percentage Rate (APR) for a specific loan (if needed - might be fixed at funding).
      * @dev Only callable by the RISK_ORACLE_ROLE.
      * @param poolId The ID of the pool managing the loan.
@@ -166,4 +168,4 @@ interface ILiquidityPoolManager {
      * @return uint256 The corresponding number of LP shares.
      */
     function previewDeposit(uint256 poolId, uint256 amount) external view returns (uint256);
-} 
+}

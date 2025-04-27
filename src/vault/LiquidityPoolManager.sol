@@ -89,7 +89,11 @@ contract LiquidityPoolManager is
         address _repaymentRouter,
         address _milestoneAuthorizer
     ) public initializer {
-        if (_admin == address(0) || _usdcToken == address(0) || _feeRouter == address(0) || _developerRegistry == address(0) || _devEscrowImplementation == address(0) || _repaymentRouter == address(0) || _milestoneAuthorizer == address(0)) {
+        if (
+            _admin == address(0) || _usdcToken == address(0) || _feeRouter == address(0)
+                || _developerRegistry == address(0) || _devEscrowImplementation == address(0)
+                || _repaymentRouter == address(0) || _milestoneAuthorizer == address(0)
+        ) {
             revert Errors.ZeroAddressNotAllowed();
         }
 
@@ -114,23 +118,23 @@ contract LiquidityPoolManager is
     }
 
     // --- Pool Management ---    /**
-     /* @inheritdoc ILiquidityPoolManager
+    /* @inheritdoc ILiquidityPoolManager
      * @dev Pool ID should be unique and managed off-chain or via internal counter.
      *      Using internal counter `poolCount` for simplicity.
      */
-    function createPool(uint256 /* poolId */, string calldata name) external override onlyRole(Constants.DEFAULT_ADMIN_ROLE) whenNotPaused {
+    function createPool(uint256, /* poolId */ string calldata name)
+        external
+        override
+        onlyRole(Constants.DEFAULT_ADMIN_ROLE)
+        whenNotPaused
+    {
         // Use internal counter for poolId
         uint256 newPoolId = ++poolCount;
         if (pools[newPoolId].exists) revert Errors.PoolAlreadyExists(newPoolId);
         if (bytes(name).length == 0) revert Errors.StringCannotBeEmpty();
 
-        pools[newPoolId] = PoolInfo({
-            exists: true,
-            name: name,
-            totalAssets: 0,
-            totalShares: 0
-            // Initialize other fields if added
-        });
+        pools[newPoolId] = PoolInfo({exists: true, name: name, totalAssets: 0, totalShares: 0});
+        // Initialize other fields if added
 
         emit PoolCreated(newPoolId, name, msg.sender);
     }
@@ -140,7 +144,13 @@ contract LiquidityPoolManager is
      * @dev Mints LP shares proportional to the deposit amount relative to the pool's total assets.
      *      Follows a simplified ERC4626-like share calculation.
      */
-    function depositToPool(uint256 poolId, uint256 amount) external override nonReentrant whenNotPaused returns (uint256 shares) {
+    function depositToPool(uint256 poolId, uint256 amount)
+        external
+        override
+        nonReentrant
+        whenNotPaused
+        returns (uint256 shares)
+    {
         if (amount == 0) revert Errors.CannotInvestZero();
         PoolInfo storage pool = pools[poolId];
         if (!pool.exists) revert Errors.PoolDoesNotExist(poolId);
@@ -172,7 +182,13 @@ contract LiquidityPoolManager is
      * @inheritdoc ILiquidityPoolManager
      * @dev Burns LP shares and returns a proportional amount of the underlying USDC.
      */
-    function redeem(uint256 poolId, uint256 shares) external override nonReentrant whenNotPaused returns (uint256 assets) {
+    function redeem(uint256 poolId, uint256 shares)
+        external
+        override
+        nonReentrant
+        whenNotPaused
+        returns (uint256 assets)
+    {
         if (shares == 0) revert Errors.CannotRedeemZeroShares();
         PoolInfo storage pool = pools[poolId];
         if (!pool.exists) revert Errors.PoolDoesNotExist(poolId);
@@ -200,14 +216,17 @@ contract LiquidityPoolManager is
     }
 
     // --- Project Funding & Repayment ---
-     /* @inheritdoc ILiquidityPoolManager
+    /* @inheritdoc ILiquidityPoolManager
      * @dev Selects pool (simple first-fit for MVP), fetches APR, deploys DevEscrow, stores record, funds escrow.
      */
-    function registerAndFundProject(
-        uint256 projectId, 
-        address developer, 
-        ProjectParams calldata params
-    ) external override nonReentrant whenNotPaused onlyRole(Constants.PROJECT_HANDLER_ROLE) returns (bool success, uint256 poolId) {
+    function registerAndFundProject(uint256 projectId, address developer, ProjectParams calldata params)
+        external
+        override
+        nonReentrant
+        whenNotPaused
+        onlyRole(Constants.PROJECT_HANDLER_ROLE)
+        returns (bool success, uint256 poolId)
+    {
         // Validate inputs
         if (developer == address(0)) revert Errors.ZeroAddressNotAllowed();
         if (params.loanAmountRequested == 0) revert Errors.AmountCannotBeZero();
@@ -217,7 +236,7 @@ contract LiquidityPoolManager is
         uint256 selectedPoolId = 0;
         address escrowAddress;
         uint16 aprBps = 1000; // Placeholder: 10% APR
-        
+
         // Find a pool with sufficient liquidity
         for (uint256 i = 1; i <= poolCount; i++) {
             if (pools[i].exists && pools[i].totalAssets >= loanAmount) {
@@ -236,20 +255,15 @@ contract LiquidityPoolManager is
         // Deploy DevEscrow
         escrowAddress = Clones.clone(devEscrowImplementation);
         if (escrowAddress == address(0)) revert Errors.InvalidState("DevEscrow clone failed");
-        
+
         // Initialize the cloned DevEscrow
         try DevEscrow(payable(escrowAddress)).initialize(
-            address(usdcToken),
-            developer,
-            address(this),
-            loanAmount,
-            milestoneAuthorizer,
-            address(this)
+            address(usdcToken), developer, address(this), loanAmount, milestoneAuthorizer, address(this)
         ) {
             // Initialization potentially needed if constructor logic moved
         } catch Error(string memory reason) {
             revert(string(abi.encodePacked("DevEscrow init failed: ", reason)));
-        } catch { 
+        } catch {
             revert Errors.InvalidState("DevEscrow init failed (low level)");
         }
 
@@ -337,9 +351,9 @@ contract LiquidityPoolManager is
 
         // Check if loan is fully repaid
         if (loan.principalRepaid >= loan.principal) {
-             loan.principalRepaid = loan.principal; // Cap at original principal
-             loan.isActive = false;
-             // Optionally: Clean up loan record? Might impact history.
+            loan.principalRepaid = loan.principal; // Cap at original principal
+            loan.isActive = false;
+            // Optionally: Clean up loan record? Might impact history.
         }
 
         emit PoolRepaymentReceived(poolId, projectId, msg.sender, principalPaid, interestPaid);
@@ -352,7 +366,12 @@ contract LiquidityPoolManager is
      * @dev Requires caller to have `RISK_ORACLE_ROLE`.
      *      Currently only updates APR in the stored LoanRecord.
      */
-     function updateRiskParams(uint256 poolId, uint256 projectId, uint16 newAprBps) external override onlyRole(Constants.RISK_ORACLE_ROLE) whenNotPaused {
+    function updateRiskParams(uint256 poolId, uint256 projectId, uint16 newAprBps)
+        external
+        override
+        onlyRole(Constants.RISK_ORACLE_ROLE)
+        whenNotPaused
+    {
         // Note: PoolInfo needed? No, it's per loan.
         // if (!pools[poolId].exists) revert Errors.PoolDoesNotExist(poolId);
         LoanRecord storage loan = poolLoans[poolId][projectId];
@@ -361,7 +380,7 @@ contract LiquidityPoolManager is
         loan.aprBps = newAprBps;
         // Emit event?
         // emit PoolLoanRiskParamsUpdated(poolId, projectId, newAprBps);
-     }
+    }
 
     // --- View Functions ---
     function getPoolInfo(uint256 poolId) external view override returns (PoolInfo memory) {
@@ -383,7 +402,7 @@ contract LiquidityPoolManager is
      * @inheritdoc ILiquidityPoolManager
      */
     function previewDeposit(uint256 poolId, uint256 amount) external view override returns (uint256 shares) {
-         PoolInfo storage pool = pools[poolId];
+        PoolInfo storage pool = pools[poolId];
         if (!pool.exists) revert Errors.PoolDoesNotExist(poolId);
         if (amount == 0) return 0;
 
@@ -426,7 +445,13 @@ contract LiquidityPoolManager is
     }
 
     // --- Access Control Overrides ---
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

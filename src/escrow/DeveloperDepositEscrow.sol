@@ -180,7 +180,8 @@ contract DeveloperDepositEscrow is
      * @param projectId The unique identifier for the project.
      * @return bool True if the deposit has been settled, false otherwise.
      */
-    function isDepositSettled(uint256 projectId) external view returns (bool) { // Renamed view function
+    function isDepositSettled(uint256 projectId) external view returns (bool) {
+        // Renamed view function
         return depositSettled[projectId];
     }
 
@@ -207,7 +208,13 @@ contract DeveloperDepositEscrow is
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

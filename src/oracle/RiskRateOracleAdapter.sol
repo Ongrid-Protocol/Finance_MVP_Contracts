@@ -16,11 +16,7 @@ import {ILiquidityPoolManager} from "../interfaces/ILiquidityPoolManager.sol";
  *      respective funding contracts (DirectProjectVault or LiquidityPoolManager).
  *      Uses UUPS for upgradeability.
  */
-contract RiskRateOracleAdapter is
-    Initializable,
-    AccessControlEnumerable,
-    UUPSUpgradeable
-{
+contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUpgradeable {
     // --- Events ---
     /**
      * @dev Emitted when a target contract is set or updated for a project ID.
@@ -38,7 +34,9 @@ contract RiskRateOracleAdapter is
      * @param aprBps The Annual Percentage Rate in basis points pushed to the target.
      * @param tenor The loan tenor in days pushed to the target (optional, may not be updated post-funding).
      */
-    event RiskParamsPushed(uint256 indexed projectId, address indexed targetContract, address indexed oracle, uint16 aprBps, uint48 tenor);
+    event RiskParamsPushed(
+        uint256 indexed projectId, address indexed targetContract, address indexed oracle, uint16 aprBps, uint48 tenor
+    );
 
     // --- State Variables ---
     /**
@@ -52,7 +50,7 @@ contract RiskRateOracleAdapter is
      *      Needed because PoolManager functions often require both poolId and projectId.
      *      Only set for projects handled by LiquidityPoolManager.
      */
-     mapping(uint256 => uint256) public projectPoolId; // projectId => poolId
+    mapping(uint256 => uint256) public projectPoolId; // projectId => poolId
 
     // --- Initializer ---
     /**
@@ -83,14 +81,17 @@ contract RiskRateOracleAdapter is
      * @param targetContract The address of the `DirectProjectVault` or `LiquidityPoolManager`.
      * @param poolId The ID of the pool managing the project (only relevant if `targetContract` is a PoolManager, otherwise use 0).
      */
-    function setTargetContract(uint256 projectId, address targetContract, uint256 poolId) external onlyRole(Constants.DEFAULT_ADMIN_ROLE) {
+    function setTargetContract(uint256 projectId, address targetContract, uint256 poolId)
+        external
+        onlyRole(Constants.DEFAULT_ADMIN_ROLE)
+    {
         if (targetContract == address(0)) revert Errors.ZeroAddressNotAllowed();
         // Optional: Add check if projectId already has a target, depending on policy
 
         projectTargetContract[projectId] = targetContract;
         // Only store poolId if it's non-zero (indicating it's a pool-managed project)
         if (poolId != 0) {
-             projectPoolId[projectId] = poolId;
+            projectPoolId[projectId] = poolId;
         }
         // Ensure poolId is cleared if target is potentially changed from pool to vault later?
         // else { delete projectPoolId[projectId]; } // Add if necessary
@@ -127,27 +128,27 @@ contract RiskRateOracleAdapter is
         // Pools have updateRiskParams(uint256 poolId, uint256 projectId, uint16 newAprBps)
         // Tenor update might not be supported post-launch, primarily pushing APR.
 
-        bool success = false; 
+        bool success = false;
         bytes memory errorData;
 
         // Attempt to call DirectProjectVault's updateRiskParams(uint16)
         try IProjectVault(target).updateRiskParams(aprBps) {
             success = true;
         } catch (bytes memory lowLevelData) {
-             errorData = lowLevelData;
+            errorData = lowLevelData;
             // Vault call failed, try PoolManager
-             uint256 poolId = projectPoolId[projectId];
-             if (poolId == 0) {
+            uint256 poolId = projectPoolId[projectId];
+            if (poolId == 0) {
                 // If poolId is 0, it should have been a Vault or target wasn't set correctly for a pool.
-                 // Revert based on the original Vault call failure data, or a generic error.
-                 revert(string(abi.encodePacked("Vault call failed and no poolId set: ", string(errorData))));
+                // Revert based on the original Vault call failure data, or a generic error.
+                revert(string(abi.encodePacked("Vault call failed and no poolId set: ", string(errorData))));
             }
             try ILiquidityPoolManager(target).updateRiskParams(poolId, projectId, aprBps) {
                 success = true;
             } catch Error(string memory reason) {
-                 revert(string(abi.encodePacked("PoolManager call failed: ", reason)));
+                revert(string(abi.encodePacked("PoolManager call failed: ", reason)));
             } catch (bytes memory lowLevelData2) {
-                 revert(string(abi.encodePacked("PoolManager call failed: ", string(lowLevelData2))));
+                revert(string(abi.encodePacked("PoolManager call failed: ", string(lowLevelData2))));
             }
         }
 
@@ -169,7 +170,7 @@ contract RiskRateOracleAdapter is
         return projectTargetContract[projectId];
     }
 
-     /**
+    /**
      * @notice Gets the pool ID registered for a specific project ID (if applicable).
      * @param projectId The project ID.
      * @return uint256 The pool ID, or 0 if not a pool-managed project or not set.
@@ -192,7 +193,13 @@ contract RiskRateOracleAdapter is
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

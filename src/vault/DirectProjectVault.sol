@@ -94,7 +94,10 @@ contract DirectProjectVault is
         uint48 _loanTenor, // Duration in days
         uint16 _initialAprBps
     ) public initializer {
-        if (_admin == address(0) || _usdcToken == address(0) || _developer == address(0) || _devEscrow == address(0) || _repaymentRouter == address(0)) {
+        if (
+            _admin == address(0) || _usdcToken == address(0) || _developer == address(0) || _devEscrow == address(0)
+                || _repaymentRouter == address(0)
+        ) {
             revert Errors.ZeroAddressNotAllowed();
         }
         if (_loanAmount == 0) revert Errors.AmountCannotBeZero();
@@ -115,7 +118,7 @@ contract DirectProjectVault is
         // Role for RepaymentRouter to call handleRepayment
         _grantRole(Constants.REPAYMENT_HANDLER_ROLE, _repaymentRouter);
         // Role for DevEscrow to call triggerDrawdown
-        _grantRole(Constants.DEV_ESCROW_ROLE, _devEscrow); 
+        _grantRole(Constants.DEV_ESCROW_ROLE, _devEscrow);
         // Role for Oracle Adapter - initially grant to admin, should be transferred
         _grantRole(Constants.RISK_ORACLE_ROLE, _admin);
 
@@ -127,11 +130,11 @@ contract DirectProjectVault is
         principalRepaid = 0;
         interestRepaid = 0;
         accruedInterestPerShare_RAY = 0; // Starts at zero
-        // lastInterestAccrualTimestamp will be set when funding closes
+            // lastInterestAccrualTimestamp will be set when funding closes
     }
 
     // --- Investment Phase ---    /**
-     /* @inheritdoc IProjectVault
+    /* @inheritdoc IProjectVault
      * @dev Uses investor deposit amount directly as shares for simplicity (1 share = 1 wei USDC).
      */
     function invest(uint256 amount) external override nonReentrant whenNotPaused {
@@ -166,10 +169,10 @@ contract DirectProjectVault is
      *      Should only execute once.
      */
     function closeFundingManually() external onlyRole(Constants.DEFAULT_ADMIN_ROLE) whenNotPaused {
-         if (fundingClosed) revert Errors.FundingClosed();
-         // Allow closing even if not fully funded?
-         // if (totalAssetsInvested == 0) revert Errors.InvalidState("Cannot close funding with zero investment");
-         _closeFunding();
+        if (fundingClosed) revert Errors.FundingClosed();
+        // Allow closing even if not fully funded?
+        // if (totalAssetsInvested == 0) revert Errors.InvalidState("Cannot close funding with zero investment");
+        _closeFunding();
     }
 
     /**
@@ -186,15 +189,14 @@ contract DirectProjectVault is
 
         // Transfer collected funds to DevEscrow
         if (totalAssetsInvested > 0) {
-             usdcToken.safeTransfer(address(devEscrow), totalAssetsInvested);
-             // Notify escrow via its fundEscrow function (optional but good practice)
-             try devEscrow.fundEscrow(totalAssetsInvested) {}
-             catch { /* Escrow notification failed - log or ignore */ }
+            usdcToken.safeTransfer(address(devEscrow), totalAssetsInvested);
+            // Notify escrow via its fundEscrow function (optional but good practice)
+            try devEscrow.fundEscrow(totalAssetsInvested) {} catch { /* Escrow notification failed - log or ignore */ }
         }
     }
 
     // --- Interest Accrual ---    /**
-     /* @notice Accrues continuously compounded interest from the last accrual timestamp up to the current block time.
+    /* @notice Accrues continuously compounded interest from the last accrual timestamp up to the current block time.
      * @dev Updates `accruedInterestPerShare_RAY` and `lastInterestAccrualTimestamp`.
      *      Uses PRBMath `rpow` for exponentiation.
      *      Interest accrues on the outstanding principal.
@@ -220,20 +222,17 @@ contract DirectProjectVault is
         // Use SD59x18 for signed intermediate value for mulDivSigned
         int256 timeElapsed_sd = sd(int256(uint256(currentTimestamp - lastTimestamp))).unwrap();
         int256 secondsPerYear_sd = sd(int256(Constants.SECONDS_PER_YEAR)).unwrap();
-        
+
         // Use mulDivSigned directly imported from Common
-        int256 exponent_sd = mulDivSigned(
-            sd(int256(annualRate_ud.unwrap())).unwrap(),
-            timeElapsed_sd,
-            secondsPerYear_sd
-        );
+        int256 exponent_sd =
+            mulDivSigned(sd(int256(annualRate_ud.unwrap())).unwrap(), timeElapsed_sd, secondsPerYear_sd);
 
         // Use exp2 function directly imported from Common
         uint256 rateMultiplier_ud = exp2(uint256(exponent_sd));
 
         // --- Update Accrued Interest Per Share ---
         // Convert UD60x18 (1e18) multiplier to RAY (1e27) scale:
-         uint256 rateMultiplier_RAY_scaled = rateMultiplier_ud * 1e9; // Scale up by 1e9 (RAY/UD)
+        uint256 rateMultiplier_RAY_scaled = rateMultiplier_ud * 1e9; // Scale up by 1e9 (RAY/UD)
 
         uint256 currentAccrual_RAY = accruedInterestPerShare_RAY;
         // Apply multiplier: newAccrued = oldAccrued * multiplier + (multiplier - 1) [scaled to RAY]
@@ -246,7 +245,7 @@ contract DirectProjectVault is
     }
 
     // --- Repayment Handling ---    /**
-     /* @inheritdoc IProjectVault
+    /* @inheritdoc IProjectVault
      * @notice Handles repayments received from the RepaymentRouter.
      * @dev Calculates the principal and interest split based on the `netAmountReceived`.
      *      Updates the vault state and returns the calculated split.
@@ -257,7 +256,7 @@ contract DirectProjectVault is
      * @return principalPaid The amount allocated to principal repayment.
      * @return interestPaid The amount allocated to interest repayment.
      */
-    function handleRepayment(uint256 /* poolId */, uint256 _projectId, uint256 netAmountReceived)
+    function handleRepayment(uint256, /* poolId */ uint256 _projectId, uint256 netAmountReceived)
         external
         nonReentrant
         whenNotPaused
@@ -279,7 +278,8 @@ contract DirectProjectVault is
         // Convert RAY (1e27) to wei (1e6 for USDC)
         uint256 totalAccruedInterest_USDC = totalAccruedInterest_RAY; // Division by RAY already scaled it to USDC wei
 
-        uint256 outstandingInterest = totalAccruedInterest_USDC > interestRepaid ? totalAccruedInterest_USDC - interestRepaid : 0;
+        uint256 outstandingInterest =
+            totalAccruedInterest_USDC > interestRepaid ? totalAccruedInterest_USDC - interestRepaid : 0;
 
         // Determine split: Prioritize interest repayment
         if (netAmountReceived >= outstandingInterest) {
@@ -302,8 +302,8 @@ contract DirectProjectVault is
         // Check if loan is now fully repaid
         if (principalRepaid >= totalAssetsInvested) {
             // Ensure all principal is marked as repaid, handle potential rounding differences
-             principalRepaid = totalAssetsInvested;
-             _closeLoan();
+            principalRepaid = totalAssetsInvested;
+            _closeLoan();
         }
 
         emit RepaymentReceived(projectId, msg.sender, principalPaid, interestPaid);
@@ -313,7 +313,7 @@ contract DirectProjectVault is
     }
 
     // --- Claiming Functions ---    /**
-     /* @inheritdoc IProjectVault
+    /* @inheritdoc IProjectVault
      * @dev Calculates claimable interest for the caller based on their shares and global repayment state.
      */
     function claimYield() external override nonReentrant whenNotPaused {
@@ -342,7 +342,7 @@ contract DirectProjectVault is
     }
 
     // --- Oracle & Admin Functions ---    /**
-     /* @inheritdoc IProjectVault
+    /* @inheritdoc IProjectVault
      */
     function updateRiskParams(uint16 newAprBps) external override onlyRole(Constants.RISK_ORACLE_ROLE) whenNotPaused {
         if (loanClosed) revert Errors.LoanAlreadyClosed();
@@ -372,26 +372,28 @@ contract DirectProjectVault is
         if (loanClosed) return;
         loanClosed = true;
         // Accrue final interest to capture any remaining amount
-         _accrueInterest();
+        _accrueInterest();
         uint256 finalInterestAccrued_RAY = (accruedInterestPerShare_RAY * totalShares) / RAY;
         uint256 finalInterestAccrued_USDC = finalInterestAccrued_RAY; // Division by RAY already scaled it to USDC wei
 
         emit LoanClosed(projectId, principalRepaid, finalInterestAccrued_USDC);
     }
 
-     /**
-      * @inheritdoc IProjectVault
-      */
-     function closeLoan() external override {
+    /**
+     * @inheritdoc IProjectVault
+     */
+    function closeLoan() external override {
         // Allow admin or repayment handler to trigger close if conditions met?
-        if (!hasRole(Constants.DEFAULT_ADMIN_ROLE, msg.sender) && !hasRole(Constants.REPAYMENT_HANDLER_ROLE, msg.sender)) {
+        if (
+            !hasRole(Constants.DEFAULT_ADMIN_ROLE, msg.sender) && !hasRole(Constants.REPAYMENT_HANDLER_ROLE, msg.sender)
+        ) {
             revert Errors.NotAuthorized(msg.sender, Constants.DEFAULT_ADMIN_ROLE); // Or REPAYMENT_HANDLER_ROLE
         }
         if (loanClosed) revert Errors.LoanAlreadyClosed();
         // Require principal to be fully repaid before allowing manual close?
         if (principalRepaid < totalAssetsInvested) revert Errors.LoanNotClosed(); // Cannot close manually unless fully repaid
         _closeLoan();
-     }
+    }
 
     // --- View Functions ---
     function getPrincipalRepaid() external view override returns (uint256) {
@@ -402,7 +404,7 @@ contract DirectProjectVault is
         return totalAssetsInvested;
     }
 
-     function getLoanAmount() external view override returns (uint256) {
+    function getLoanAmount() external view override returns (uint256) {
         return loanAmount;
     }
 
@@ -426,28 +428,27 @@ contract DirectProjectVault is
             // Simulate accrual without modifying state
             UD60x18 annualRate_ud = ud(uint256(currentAprBps)).div(ud(Constants.BASIS_POINTS_DENOMINATOR));
             // UD60x18 timeDelta_ud = ud(currentTimestamp - lastTimestamp);
-            
+
             // Convert to SD59x18 for calculation
             int256 timeElapsed_sd = sd(int256(uint256(currentTimestamp - lastTimestamp))).unwrap();
             int256 secondsPerYear_sd = sd(int256(Constants.SECONDS_PER_YEAR)).unwrap();
-            
+
             // Use mulDivSigned directly imported from Common
-            int256 exponent_sd = mulDivSigned(
-                sd(int256(annualRate_ud.unwrap())).unwrap(),
-                timeElapsed_sd,
-                secondsPerYear_sd
-            );
+            int256 exponent_sd =
+                mulDivSigned(sd(int256(annualRate_ud.unwrap())).unwrap(), timeElapsed_sd, secondsPerYear_sd);
 
             // Use exp2 function directly imported from Common
             uint256 rateMultiplier_ud = exp2(uint256(exponent_sd));
             uint256 rateMultiplier_RAY_scaled = rateMultiplier_ud * 1e9;
-            currentAccrual_RAY = (currentAccrual_RAY * rateMultiplier_RAY_scaled / RAY) + (rateMultiplier_RAY_scaled - RAY);
+            currentAccrual_RAY =
+                (currentAccrual_RAY * rateMultiplier_RAY_scaled / RAY) + (rateMultiplier_RAY_scaled - RAY);
         }
 
         uint256 outstandingPrincipal = totalAssetsInvested - principalRepaid;
         uint256 totalAccruedInterest_RAY = (currentAccrual_RAY * totalShares) / RAY;
         uint256 totalAccruedInterest_USDC = totalAccruedInterest_RAY; // Division by RAY already scaled it to USDC wei
-        uint256 outstandingInterest = totalAccruedInterest_USDC > interestRepaid ? totalAccruedInterest_USDC - interestRepaid : 0;
+        uint256 outstandingInterest =
+            totalAccruedInterest_USDC > interestRepaid ? totalAccruedInterest_USDC - interestRepaid : 0;
 
         return outstandingPrincipal + outstandingInterest;
     }
@@ -509,7 +510,13 @@ contract DirectProjectVault is
     }
 
     // --- Access Control Overrides ---
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

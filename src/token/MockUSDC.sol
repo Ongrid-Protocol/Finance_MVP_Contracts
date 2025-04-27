@@ -84,9 +84,9 @@ contract MockUSDC is ERC20, ERC20Burnable, ERC20Permit, AccessControlEnumerable 
         // _spendAllowance is internal in OZ 5.x, so we call the public view function
         uint256 currentAllowance = allowance(from, msg.sender);
         if (currentAllowance < amount) {
-             revert Errors.InvalidAmount(currentAllowance); // Reusing error, could define specific ERC20Error.InsufficientAllowance
+            revert Errors.InvalidAmount(currentAllowance); // Reusing error, could define specific ERC20Error.InsufficientAllowance
         }
-         _spendAllowance(from, msg.sender, amount);
+        _spendAllowance(from, msg.sender, amount);
 
         // Perform the burn
         _burn(from, amount);
@@ -99,7 +99,13 @@ contract MockUSDC is ERC20, ERC20Burnable, ERC20Permit, AccessControlEnumerable 
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

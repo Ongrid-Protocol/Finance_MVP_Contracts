@@ -12,7 +12,7 @@ library Constants {
 
     // --- Financial ---
     uint8 public constant USDC_DECIMALS = 6;
-    uint256 public constant USDC_UNIT = 10**USDC_DECIMALS; // 1 USDC
+    uint256 public constant USDC_UNIT = 10 ** USDC_DECIMALS; // 1 USDC
 
     // Represents 100% in basis points (BPS)
     uint16 public constant BASIS_POINTS_DENOMINATOR = 10000; // 100% = 10,000 BPS
@@ -72,5 +72,4 @@ library Constants {
     bytes32 public constant RISK_ORACLE_ROLE = keccak256("RISK_ORACLE_ROLE"); // DirectProjectVault, LiquidityPoolManager, RiskRateOracleAdapter
     bytes32 public constant MILESTONE_AUTHORIZER_ROLE = keccak256("MILESTONE_AUTHORIZER_ROLE"); // DevEscrow
     bytes32 public constant REPAYMENT_ROUTER_ROLE = keccak256("REPAYMENT_ROUTER_ROLE"); // FeeRouter
-
-} 
+}

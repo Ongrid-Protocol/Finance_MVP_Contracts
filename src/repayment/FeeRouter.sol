@@ -64,7 +64,10 @@ contract FeeRouter is
         address _protocolTreasury,
         address _carbonTreasury
     ) public initializer {
-        if (_admin == address(0) || _usdcToken == address(0) || _developerRegistry == address(0) || _protocolTreasury == address(0) || _carbonTreasury == address(0)) {
+        if (
+            _admin == address(0) || _usdcToken == address(0) || _developerRegistry == address(0)
+                || _protocolTreasury == address(0) || _carbonTreasury == address(0)
+        ) {
             revert Errors.ZeroAddressNotAllowed();
         }
 
@@ -81,7 +84,10 @@ contract FeeRouter is
         _grantRole(Constants.PROJECT_HANDLER_ROLE, _admin); // Grant to admin initially
 
         // Check if treasury shares sum to 100%
-        if (Constants.PROTOCOL_TREASURY_SHARE_BPS + Constants.CARBON_TREASURY_SHARE_BPS != Constants.BASIS_POINTS_DENOMINATOR) {
+        if (
+            Constants.PROTOCOL_TREASURY_SHARE_BPS + Constants.CARBON_TREASURY_SHARE_BPS
+                != Constants.BASIS_POINTS_DENOMINATOR
+        ) {
             revert Errors.InvalidValue("Treasury shares do not sum to 10000 BPS");
         }
     }
@@ -141,7 +147,12 @@ contract FeeRouter is
      * @param developer The developer address (passed explicitly for verification against stored data).
      * @return feeAmount The calculated fee in USDC units.
      */
-    function calculateCapitalRaisingFee(uint256 projectId, address developer) public view override returns (uint256 feeAmount) {
+    function calculateCapitalRaisingFee(uint256 projectId, address developer)
+        public
+        view
+        override
+        returns (uint256 feeAmount)
+    {
         ProjectFeeDetails storage details = projectFeeInfo[projectId];
         if (details.developer == address(0)) revert Errors.InvalidValue("Project details not set");
         if (details.developer != developer) revert Errors.InvalidValue("Developer mismatch");
@@ -163,7 +174,12 @@ contract FeeRouter is
      * @param outstandingPrincipal The current outstanding principal of the loan.
      * @return feeAmount The accrued management fee in USDC units for the period.
      */
-    function calculateManagementFee(uint256 projectId, uint256 outstandingPrincipal) public view override returns (uint256 feeAmount) {
+    function calculateManagementFee(uint256 projectId, uint256 outstandingPrincipal)
+        public
+        view
+        override
+        returns (uint256 feeAmount)
+    {
         ProjectFeeDetails storage details = projectFeeInfo[projectId];
         if (details.developer == address(0)) revert Errors.InvalidValue("Project details not set");
 
@@ -184,10 +200,8 @@ contract FeeRouter is
 
         // Calculate fee for the period: fee = principal * annualRate * (timeElapsed / secondsPerYear)
         // Use PRBMath: fee = outstandingPrincipal_ud.mul(annualRate_ud).mul(timeElapsed_ud).div(secondsPerYear_ud)
-        UD60x18 feeAmount_ud = ud(outstandingPrincipal)
-            .mul(annualRate_ud)
-            .mul(ud(timeElapsed))
-            .div(ud(Constants.SECONDS_PER_YEAR));
+        UD60x18 feeAmount_ud =
+            ud(outstandingPrincipal).mul(annualRate_ud).mul(ud(timeElapsed)).div(ud(Constants.SECONDS_PER_YEAR));
 
         // Convert back from UD60x18 to standard uint256 (assuming USDC decimals handled correctly)
         // PRBMath handles the decimal placement internally.
@@ -226,12 +240,16 @@ contract FeeRouter is
      *      Let's restrict to REPAYMENT_ROUTER_ROLE for now, assuming it triggers this post-calculation.
      * @param projectId The project ID.
      */
-    function updateLastMgmtFeeTimestamp(uint256 projectId) external override onlyRole(Constants.REPAYMENT_ROUTER_ROLE) {
+    function updateLastMgmtFeeTimestamp(uint256 projectId)
+        external
+        override
+        onlyRole(Constants.REPAYMENT_ROUTER_ROLE)
+    {
         ProjectFeeDetails storage details = projectFeeInfo[projectId];
         if (details.developer == address(0)) revert Errors.InvalidValue("Project details not set");
         // Update timestamp only if current time is later
         if (block.timestamp > details.lastMgmtFeeTimestamp) {
-             details.lastMgmtFeeTimestamp = uint64(block.timestamp);
+            details.lastMgmtFeeTimestamp = uint64(block.timestamp);
         }
     }
 
@@ -246,10 +264,11 @@ contract FeeRouter is
 
         // Ensure this contract holds the fee amount
         if (usdcToken.balanceOf(address(this)) < feeAmount) {
-             revert Errors.InvalidAmount(usdcToken.balanceOf(address(this))); // Or specific error
+            revert Errors.InvalidAmount(usdcToken.balanceOf(address(this))); // Or specific error
         }
 
-        uint256 protocolAmount = (feeAmount * Constants.PROTOCOL_TREASURY_SHARE_BPS) / Constants.BASIS_POINTS_DENOMINATOR;
+        uint256 protocolAmount =
+            (feeAmount * Constants.PROTOCOL_TREASURY_SHARE_BPS) / Constants.BASIS_POINTS_DENOMINATOR;
         uint256 carbonAmount = feeAmount - protocolAmount; // Remainder goes to carbon treasury
 
         // Transfer funds
@@ -279,7 +298,13 @@ contract FeeRouter is
     }
 
     // --- Access Control Overrides ---
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

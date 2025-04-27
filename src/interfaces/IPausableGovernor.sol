@@ -72,4 +72,4 @@ interface IPausableGovernor {
      * @return bool True if the contract is managed by the governor, false otherwise.
      */
     function isPausableContract(address target) external view returns (bool);
-} 
+}

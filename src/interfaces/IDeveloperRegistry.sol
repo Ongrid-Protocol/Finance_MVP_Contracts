@@ -82,4 +82,4 @@ interface IDeveloperRegistry {
      * @return uint32 The number of funded projects.
      */
     function getTimesFunded(address developer) external view returns (uint32);
-} 
+}

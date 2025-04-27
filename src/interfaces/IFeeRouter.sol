@@ -29,7 +29,8 @@ interface IFeeRouter {
      * @param developer The address of the project developer.
      * @param creationTime The timestamp when the project funding started (or was created).
      */
-    function setProjectDetails(uint256 projectId, uint256 loanAmount, address developer, uint64 creationTime) external;
+    function setProjectDetails(uint256 projectId, uint256 loanAmount, address developer, uint64 creationTime)
+        external;
 
     /**
      * @notice Calculates the Capital Raising Fee for a project.
@@ -85,4 +86,4 @@ interface IFeeRouter {
      * @return address The carbon treasury address.
      */
     function getCarbonTreasury() external view returns (address);
-} 
+}

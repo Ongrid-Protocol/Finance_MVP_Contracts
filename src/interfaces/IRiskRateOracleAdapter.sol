@@ -35,4 +35,4 @@ interface IRiskRateOracleAdapter {
      * @return uint256 The pool ID, or 0 if not a pool-managed project or not set.
      */
     function getPoolId(uint256 projectId) external view returns (uint256);
-} 
+}

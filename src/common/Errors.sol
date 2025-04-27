@@ -75,4 +75,4 @@ library Errors {
 
     // --- UUPS ---
     error NotImplementingFunction(bytes4 functionSelector);
-} 
+}

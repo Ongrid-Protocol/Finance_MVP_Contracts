@@ -151,9 +151,9 @@ interface IProjectVault {
     function isLoanClosed() external view returns (bool);
 
     /**
-    * @notice Checks if the funding period for this vault is closed.
-    */
+     * @notice Checks if the funding period for this vault is closed.
+     */
     function isFundingClosed() external view returns (bool);
 
     // Potentially add other view functions for state variables like developer, projectId, etc.
-} 
+}

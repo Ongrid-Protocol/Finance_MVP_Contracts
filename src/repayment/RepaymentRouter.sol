@@ -20,12 +20,9 @@ import {ILiquidityPoolManager} from "../interfaces/ILiquidityPoolManager.sol";
  *      and routes the net repayment (principal + interest) to the appropriate funding source
  *      (DirectProjectVault or LiquidityPoolManager).
  */
-contract RepaymentRouter is
-    AccessControlEnumerable,
-    Pausable,
-    ReentrancyGuard
+contract RepaymentRouter is AccessControlEnumerable, Pausable, ReentrancyGuard {
     // No UUPSUpgradeable needed as per spec
-{
+
     using SafeERC20 for IERC20;
 
     // --- Events ---
@@ -36,7 +33,9 @@ contract RepaymentRouter is
      * @param poolId The associated poolId if the funding source is a PoolManager (otherwise 0).
      * @param setter The admin address performing the action.
      */
-    event FundingSourceSet(uint256 indexed projectId, address indexed fundingSource, uint256 poolId, address indexed setter);
+    event FundingSourceSet(
+        uint256 indexed projectId, address indexed fundingSource, uint256 poolId, address indexed setter
+    );
 
     /**
      * @dev Emitted when a repayment is successfully processed and routed.
@@ -67,7 +66,7 @@ contract RepaymentRouter is
      */
     mapping(uint256 => address) public projectFundingSource;
 
-     /**
+    /**
      * @dev Stores the pool ID if the funding source is a LiquidityPoolManager.
      */
     mapping(uint256 => uint256) public projectPoolId; // Only relevant if funding source is PoolManager
@@ -104,17 +103,20 @@ contract RepaymentRouter is
      * @param fundingSource The address of the `DirectProjectVault` or `LiquidityPoolManager`.
      * @param poolId The ID of the pool if `fundingSource` is a PoolManager, otherwise 0.
      */
-    function setFundingSource(uint256 projectId, address fundingSource, uint256 poolId) external onlyRole(Constants.DEFAULT_ADMIN_ROLE) {
+    function setFundingSource(uint256 projectId, address fundingSource, uint256 poolId)
+        external
+        onlyRole(Constants.DEFAULT_ADMIN_ROLE)
+    {
         if (fundingSource == address(0)) revert Errors.ZeroAddressNotAllowed();
         // Optional: Check if projectId exists? Depends on workflow.
 
         projectFundingSource[projectId] = fundingSource;
-         if (poolId != 0) {
-             projectPoolId[projectId] = poolId;
-         } else {
-             // Clear poolId if setting a non-pool source (e.g., a Vault)
-             delete projectPoolId[projectId];
-         }
+        if (poolId != 0) {
+            projectPoolId[projectId] = poolId;
+        } else {
+            // Clear poolId if setting a non-pool source (e.g., a Vault)
+            delete projectPoolId[projectId];
+        }
 
         emit FundingSourceSet(projectId, fundingSource, poolId, msg.sender);
     }
@@ -134,11 +136,7 @@ contract RepaymentRouter is
      * @param projectId The unique identifier of the project being repaid.
      * @param amount The total amount the developer intends to repay in this transaction.
      */
-    function repay(uint256 projectId, uint256 amount)
-        external
-        nonReentrant
-        whenNotPaused
-    {
+    function repay(uint256 projectId, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert Errors.AmountCannotBeZero();
         address fundingSource = projectFundingSource[projectId];
         if (fundingSource == address(0)) revert Errors.InvalidValue("Funding source not set for project");
@@ -152,10 +150,10 @@ contract RepaymentRouter is
         uint256 txFee = feeRouter.calculateTransactionFee(amount);
 
         uint256 netRepaymentAmount = amount - txFee;
-        if (netRepaymentAmount == 0 && txFee > 0) { 
-             // Edge case: Repayment only covers fee? Let it proceed but principal/interest will be 0.
-        } else if (txFee >= amount) { 
-             revert Errors.InvalidAmount(amount); // Amount must be greater than fee
+        if (netRepaymentAmount == 0 && txFee > 0) {
+            // Edge case: Repayment only covers fee? Let it proceed but principal/interest will be 0.
+        } else if (txFee >= amount) {
+            revert Errors.InvalidAmount(amount); // Amount must be greater than fee
         }
 
         // --- 3. Transfer Fee to FeeRouter ---
@@ -173,19 +171,18 @@ contract RepaymentRouter is
         bool isPool = poolId != 0;
 
         // Call target and get split back
-        try IFundingSource(fundingSource).handleRepayment(isPool ? poolId : 0, projectId, netRepaymentAmount)
-            returns (uint256 principalPaid, uint256 interestPaid)
-        {
+        try IFundingSource(fundingSource).handleRepayment(isPool ? poolId : 0, projectId, netRepaymentAmount) returns (
+            uint256 principalPaid, uint256 interestPaid
+        ) {
             principalToRepay = principalPaid;
             interestToRepay = interestPaid;
 
             // Sanity check: returned split should match net amount
             if (principalPaid + interestPaid > netRepaymentAmount) {
                 // This indicates an issue in the target contract's calculation
-                 revert Errors.InvalidValue("Target contract repayment split exceeds net amount");
+                revert Errors.InvalidValue("Target contract repayment split exceeds net amount");
             }
-             // Allow principalPaid + interestPaid < netRepaymentAmount if target handles rounding/dust?
-
+            // Allow principalPaid + interestPaid < netRepaymentAmount if target handles rounding/dust?
         } catch Error(string memory reason) {
             revert(string(abi.encodePacked("Target handleRepayment failed: ", reason)));
         } catch (bytes memory lowLevelData) {
@@ -219,7 +216,7 @@ contract RepaymentRouter is
 
     // --- View Functions ---
 
-     function getFundingSource(uint256 projectId) external view returns (address) {
+    function getFundingSource(uint256 projectId) external view returns (address) {
         return projectFundingSource[projectId];
     }
 
@@ -228,7 +225,13 @@ contract RepaymentRouter is
     }
 
     // --- Access Control Overrides ---
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
 }
@@ -242,4 +245,4 @@ interface IFundingSource {
     function handleRepayment(uint256 poolId, uint256 projectId, uint256 netAmount)
         external
         returns (uint256 principalPaid, uint256 interestPaid);
-} 
+}

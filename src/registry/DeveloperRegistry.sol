@@ -104,7 +104,7 @@ contract DeveloperRegistry is
         // if (developerInfo[developer].isVerified == verified) {
         //     if(verified) revert Errors.AlreadyVerified(developer);
         //     // else: already not verified, do nothing or revert depending on desired behavior
-        // } 
+        // }
 
         developerInfo[developer].isVerified = verified;
         emit KYCStatusChanged(developer, verified);
@@ -177,7 +177,7 @@ contract DeveloperRegistry is
      * @param developer The address of the developer.
      * @return uint32 The number of funded projects.
      */
-     function getTimesFunded(address developer) external view override returns (uint32) {
+    function getTimesFunded(address developer) external view override returns (uint32) {
         return developerInfo[developer].timesFunded;
     }
 
@@ -216,7 +216,13 @@ contract DeveloperRegistry is
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AccessControlEnumerable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
-} 
+}
