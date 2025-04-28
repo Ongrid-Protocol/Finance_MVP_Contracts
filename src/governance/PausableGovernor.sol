@@ -68,10 +68,10 @@ contract PausableGovernor is AccessControlEnumerable, IPausableGovernor {
         if (!success) {
             // Try to decode the revert reason
             if (returnData.length > 0) {
-                 string memory reason = abi.decode(returnData, (string));
-                 revert(string(abi.encodePacked("Target pause failed: ", reason)));
+                string memory reason = abi.decode(returnData, (string));
+                revert(string(abi.encodePacked("Target pause failed: ", reason)));
             } else {
-                 revert Errors.InvalidState("Target pause failed (low level)");
+                revert Errors.InvalidState("Target pause failed (low level)");
             }
         }
         emit Paused(target, msg.sender);
@@ -82,15 +82,15 @@ contract PausableGovernor is AccessControlEnumerable, IPausableGovernor {
      */
     function unpause(address target) external override onlyRole(Constants.PAUSER_ROLE) {
         _checkPausable(target);
-         // Use low-level call with signature
+        // Use low-level call with signature
         (bool success, bytes memory returnData) = target.call(abi.encodeWithSignature("unpause()"));
-         if (!success) {
+        if (!success) {
             // Try to decode the revert reason
             if (returnData.length > 0) {
-                 string memory reason = abi.decode(returnData, (string));
-                 revert(string(abi.encodePacked("Target unpause failed: ", reason)));
+                string memory reason = abi.decode(returnData, (string));
+                revert(string(abi.encodePacked("Target unpause failed: ", reason)));
             } else {
-                 revert Errors.InvalidState("Target unpause failed (low level)");
+                revert Errors.InvalidState("Target unpause failed (low level)");
             }
         }
         emit Unpaused(target, msg.sender);
@@ -128,4 +128,4 @@ contract PausableGovernor is AccessControlEnumerable, IPausableGovernor {
     {
         return type(IPausableGovernor).interfaceId == interfaceId || super.supportsInterface(interfaceId);
     }
-} 
+}

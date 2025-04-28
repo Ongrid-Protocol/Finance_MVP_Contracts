@@ -30,13 +30,7 @@ import {IDevEscrow} from "../interfaces/IDevEscrow.sol";
  *      deploys DirectProjectVault for high-value projects or triggers LiquidityPoolManager for low-value ones.
  *      Uses UUPS for upgradeability.
  */
-contract ProjectFactory is
-    Initializable,
-    AccessControlEnumerable,
-    Pausable,
-    ReentrancyGuard,
-    UUPSUpgradeable
-{
+contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, ReentrancyGuard, UUPSUpgradeable {
     // --- Structs ---
     /**
      * @dev Parameters provided by the developer when creating a project.
@@ -108,7 +102,6 @@ contract ProjectFactory is
         address admin
     );
 
-
     // --- Initializer ---
     /**
      * @notice Initializes the ProjectFactory contract.
@@ -121,8 +114,10 @@ contract ProjectFactory is
         public
         initializer
     {
-        if (_registry == address(0) || _depositEscrow == address(0) || _usdc == address(0) || _initialAdmin == address(0))
-        {
+        if (
+            _registry == address(0) || _depositEscrow == address(0) || _usdc == address(0)
+                || _initialAdmin == address(0)
+        ) {
             revert Errors.ZeroAddressNotAllowed();
         }
 
@@ -181,11 +176,8 @@ contract ProjectFactory is
         pauserAddress = _pauser;
         adminAddress = _admin;
 
-        emit AddressesSet(
-            _poolManager, _vaultImpl, _escrowImpl, _repaymentRouter, _milestoneAuth, _pauser, _admin
-        );
+        emit AddressesSet(_poolManager, _vaultImpl, _escrowImpl, _repaymentRouter, _milestoneAuth, _pauser, _admin);
     }
-
 
     // --- Project Creation ---
 
@@ -212,7 +204,7 @@ contract ProjectFactory is
 
         // Ensure dependent addresses are set
         if (address(developerRegistry) == address(0) || address(depositEscrow) == address(0)) {
-             revert Errors.NotInitialized();
+            revert Errors.NotInitialized();
         }
 
         address developer = msg.sender;
@@ -227,8 +219,8 @@ contract ProjectFactory is
         projectId = projectCounter;
 
         // --- Deposit Handling ---
-        uint256 depositAmount = (params.loanAmountRequested * Constants.DEVELOPER_DEPOSIT_BPS)
-            / Constants.BASIS_POINTS_DENOMINATOR;
+        uint256 depositAmount =
+            (params.loanAmountRequested * Constants.DEVELOPER_DEPOSIT_BPS) / Constants.BASIS_POINTS_DENOMINATOR;
         if (depositAmount == 0) revert Errors.InvalidAmount(0);
 
         depositEscrow.fundDeposit(projectId, developer, depositAmount);
@@ -236,10 +228,10 @@ contract ProjectFactory is
         // --- Routing Logic (Vault vs. Pool) ---
         if (params.loanAmountRequested >= Constants.HIGH_VALUE_THRESHOLD) {
             // --- High-Value Project: Call internal helper ---
-             _deployAndInitializeHighValueProject(developer, projectId, params);
+            _deployAndInitializeHighValueProject(developer, projectId, params);
         } else {
             // --- Low-Value Project: Submit to LiquidityPoolManager ---
-             if (address(liquidityPoolManager) == address(0)) {
+            if (address(liquidityPoolManager) == address(0)) {
                 revert Errors.NotInitialized(); // Need Pool Manager address
             }
 
@@ -250,9 +242,8 @@ contract ProjectFactory is
                 metadataCID: params.metadataCID
             });
 
-            (bool success, uint256 poolId) = liquidityPoolManager.registerAndFundProject(
-                projectId, developer, poolParams
-            );
+            (bool success, uint256 poolId) =
+                liquidityPoolManager.registerAndFundProject(projectId, developer, poolParams);
 
             emit LowValueProjectSubmitted(projectId, developer, poolId, params.loanAmountRequested, success);
         }
@@ -327,7 +318,7 @@ contract ProjectFactory is
         ) {} catch Error(string memory reason) {
             revert(string(abi.encodePacked("Vault init failed: ", reason)));
         } catch {
-             revert Errors.InvalidState("Vault init failed (low level)");
+            revert Errors.InvalidState("Vault init failed (low level)");
         }
 
         // 5. Emit Event
@@ -377,4 +368,4 @@ contract ProjectFactory is
     {
         return super.supportsInterface(interfaceId);
     }
-} 
+}

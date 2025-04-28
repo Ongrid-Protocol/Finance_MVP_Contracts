@@ -268,14 +268,13 @@ contract LiquidityPoolManager is
                 address(this) // Pool Manager can pause its escrows
             )
         );
-         if (!successEscrow) {
+        if (!successEscrow) {
             // Try to decode the revert reason
             if (returnDataEscrow.length > 0) {
                 // Attempt to decode revert string from returnDataEscrow
                 // Note: This requires Solidity 0.8.4+ and might fail if the revert is not a standard string error
                 string memory reason = abi.decode(returnDataEscrow, (string));
                 revert(string(abi.encodePacked("DevEscrow init failed: ", reason)));
-
             } else {
                 revert Errors.InvalidState("DevEscrow init failed (low level)");
             }
