@@ -256,15 +256,29 @@ contract LiquidityPoolManager is
         escrowAddress = Clones.clone(devEscrowImplementation);
         if (escrowAddress == address(0)) revert Errors.InvalidState("DevEscrow clone failed");
 
-        // Initialize the cloned DevEscrow
-        try DevEscrow(payable(escrowAddress)).initialize(
-            address(usdcToken), developer, address(this), loanAmount, milestoneAuthorizer, address(this)
-        ) {
-            // Initialization potentially needed if constructor logic moved
-        } catch Error(string memory reason) {
-            revert(string(abi.encodePacked("DevEscrow init failed: ", reason)));
-        } catch {
-            revert Errors.InvalidState("DevEscrow init failed (low level)");
+        // Initialize the cloned DevEscrow using a low-level call
+        (bool successEscrow, bytes memory returnDataEscrow) = escrowAddress.call(
+            abi.encodeWithSignature(
+                "initialize(address,address,address,uint256,address,address)",
+                address(usdcToken),
+                developer,
+                address(this), // Pool Manager is the funding source
+                loanAmount,
+                milestoneAuthorizer,
+                address(this) // Pool Manager can pause its escrows
+            )
+        );
+         if (!successEscrow) {
+            // Try to decode the revert reason
+            if (returnDataEscrow.length > 0) {
+                // Attempt to decode revert string from returnDataEscrow
+                // Note: This requires Solidity 0.8.4+ and might fail if the revert is not a standard string error
+                string memory reason = abi.decode(returnDataEscrow, (string));
+                revert(string(abi.encodePacked("DevEscrow init failed: ", reason)));
+
+            } else {
+                revert Errors.InvalidState("DevEscrow init failed (low level)");
+            }
         }
 
         // Create LoanRecord
