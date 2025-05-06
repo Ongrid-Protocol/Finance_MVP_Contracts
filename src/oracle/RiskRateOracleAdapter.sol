@@ -38,6 +38,20 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
         uint256 indexed projectId, address indexed targetContract, address indexed oracle, uint16 aprBps, uint48 tenor
     );
 
+    /**
+     * @dev Emitted when a periodic assessment is requested for a project.
+     * @param projectId The unique identifier of the project.
+     * @param timestamp The timestamp of the request.
+     */
+    event PeriodicAssessmentRequested(uint256 indexed projectId, uint256 timestamp);
+
+    /**
+     * @dev Emitted when the assessment interval is updated.
+     * @param oldInterval The old interval in seconds.
+     * @param newInterval The new interval in seconds.
+     */
+    event AssessmentIntervalUpdated(uint256 oldInterval, uint256 newInterval);
+
     // --- State Variables ---
     /**
      * @dev Mapping from project ID to the address of the target contract (Vault or PoolManager)
@@ -51,6 +65,17 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
      *      Only set for projects handled by LiquidityPoolManager.
      */
     mapping(uint256 => uint256) public projectPoolId; // projectId => poolId
+
+    /**
+     * @dev Mapping from project ID to the timestamp of the last assessment.
+     *      Used to track the last time a project was assessed.
+     */
+    mapping(uint256 => uint256) public lastAssessmentTimestamp; // projectId => timestamp
+
+    /**
+     * @dev The default interval between periodic assessments.
+     */
+    uint256 public assessmentInterval = 7 days; // Default period between assessments
 
     // --- Initializer ---
     /**
@@ -97,6 +122,18 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
         // else { delete projectPoolId[projectId]; } // Add if necessary
 
         emit TargetContractSet(projectId, targetContract, msg.sender);
+    }
+
+    /**
+     * @notice Sets the assessment interval for periodic risk assessments.
+     * @dev Requires caller to have `DEFAULT_ADMIN_ROLE`.
+     * @param newInterval The new interval in seconds.
+     */
+    function setAssessmentInterval(uint256 newInterval) external onlyRole(Constants.DEFAULT_ADMIN_ROLE) {
+        if (newInterval < 1 days) revert Errors.InvalidValue("Interval too short");
+        uint256 oldInterval = assessmentInterval;
+        assessmentInterval = newInterval;
+        emit AssessmentIntervalUpdated(oldInterval, newInterval);
     }
 
     // --- Oracle Function ---
@@ -185,7 +222,7 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
      *      Requires caller to have `UPGRADER_ROLE`.
      * @param newImplementation The address of the new implementation contract.
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(Constants.UPGRADER_ROLE) {
+    function _authorizeUpgrade(address newImplementation) internal view override onlyRole(Constants.UPGRADER_ROLE) {
         if (newImplementation == address(0)) revert Errors.ZeroAddressNotAllowed();
     }
 
@@ -201,5 +238,25 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
+    }
+
+    // --- Periodic Assessment Functionality ---
+
+    /**
+     * @notice Requests a periodic assessment for a project.
+     * @dev Requires caller to have `RISK_ORACLE_ROLE`.
+     *      Checks if enough time has passed since the last assessment.
+     *      If so, updates the last assessment timestamp and emits an event.
+     * @param projectId The unique identifier of the project.
+     */
+    function requestPeriodicAssessment(uint256 projectId) external onlyRole(Constants.RISK_ORACLE_ROLE) {
+        address targetContract = projectTargetContract[projectId];
+        if (targetContract == address(0)) revert Errors.TargetContractNotSet(projectId);
+
+        // Check if enough time has passed since last assessment
+        if (block.timestamp >= lastAssessmentTimestamp[projectId] + assessmentInterval) {
+            lastAssessmentTimestamp[projectId] = block.timestamp;
+            emit PeriodicAssessmentRequested(projectId, block.timestamp);
+        }
     }
 }

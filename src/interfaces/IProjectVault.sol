@@ -105,6 +105,14 @@ interface IProjectVault {
      */
     function closeLoan() external;
 
+    /**
+     * @notice Allows investors to claim both their principal and yield in a single transaction.
+     * @dev Calculates and transfers both claimable principal and yield.
+     * @return principalAmount The amount of principal claimed.
+     * @return yieldAmount The amount of yield claimed.
+     */
+    function redeem() external returns (uint256 principalAmount, uint256 yieldAmount);
+
     // --- View Functions ---
 
     /**

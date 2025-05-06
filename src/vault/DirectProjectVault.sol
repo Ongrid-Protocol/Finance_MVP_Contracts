@@ -316,7 +316,62 @@ contract DirectProjectVault is
     /* @inheritdoc IProjectVault
      * @dev Calculates claimable interest for the caller based on their shares and global repayment state.
      */
+    function redeem() external nonReentrant whenNotPaused returns (uint256 principalAmount, uint256 yieldAmount) {
+        // Ensure interest is up-to-date before calculating claimable
+        _accrueInterest();
+
+        // Calculate claimable amounts
+        principalAmount = claimablePrincipal(msg.sender);
+        yieldAmount = claimableYield(msg.sender);
+
+        uint256 totalClaimable = principalAmount + yieldAmount;
+        if (totalClaimable == 0) revert Errors.NothingToClaim();
+
+        // Update claimed amounts
+        if (principalAmount > 0) {
+            principalClaimedByInvestor[msg.sender] += principalAmount;
+        }
+
+        if (yieldAmount > 0) {
+            interestClaimedByInvestor[msg.sender] += yieldAmount;
+        }
+
+        // Transfer combined amount
+        usdcToken.safeTransfer(msg.sender, totalClaimable);
+
+        // Emit separate events for tracking
+        if (principalAmount > 0) {
+            emit PrincipalClaimed(msg.sender, principalAmount);
+        }
+
+        if (yieldAmount > 0) {
+            emit YieldClaimed(msg.sender, yieldAmount);
+        }
+
+        return (principalAmount, yieldAmount);
+    }
+
+    /**
+     * @inheritdoc IProjectVault
+     * @dev Calculates claimable principal for the caller based on their shares and global repayment state.
+     */
+    function claimPrincipal() external override nonReentrant whenNotPaused {
+        // Keep original implementation instead of calling redeem()
+        uint256 claimable = claimablePrincipal(msg.sender);
+        if (claimable == 0) revert Errors.NothingToClaim();
+
+        principalClaimedByInvestor[msg.sender] += claimable;
+        usdcToken.safeTransfer(msg.sender, claimable);
+
+        emit PrincipalClaimed(msg.sender, claimable);
+    }
+
+    /**
+     * @inheritdoc IProjectVault
+     * @dev Calculates claimable yield for the caller based on their shares and global repayment state.
+     */
     function claimYield() external override nonReentrant whenNotPaused {
+        // Keep original implementation instead of calling redeem()
         _accrueInterest(); // Ensure interest is up-to-date before calculating claimable
         uint256 claimable = claimableYield(msg.sender);
         if (claimable == 0) revert Errors.NothingToClaim();
@@ -325,20 +380,6 @@ contract DirectProjectVault is
         usdcToken.safeTransfer(msg.sender, claimable);
 
         emit YieldClaimed(msg.sender, claimable);
-    }
-
-    /**
-     * @inheritdoc IProjectVault
-     * @dev Calculates claimable principal for the caller based on their shares and global repayment state.
-     */
-    function claimPrincipal() external override nonReentrant whenNotPaused {
-        uint256 claimable = claimablePrincipal(msg.sender);
-        if (claimable == 0) revert Errors.NothingToClaim();
-
-        principalClaimedByInvestor[msg.sender] += claimable;
-        usdcToken.safeTransfer(msg.sender, claimable);
-
-        emit PrincipalClaimed(msg.sender, claimable);
     }
 
     // --- Oracle & Admin Functions ---    /**
@@ -505,7 +546,7 @@ contract DirectProjectVault is
     }
 
     // --- UUPS Upgradeability ---
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(Constants.UPGRADER_ROLE) {
+    function _authorizeUpgrade(address newImplementation) internal view override onlyRole(Constants.UPGRADER_ROLE) {
         if (newImplementation == address(0)) revert Errors.ZeroAddressNotAllowed();
     }
 

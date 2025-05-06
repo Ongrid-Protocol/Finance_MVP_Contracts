@@ -350,7 +350,7 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
      *      Requires caller to have `UPGRADER_ROLE`.
      * @param newImplementation The address of the new implementation contract.
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(Constants.UPGRADER_ROLE) {
+    function _authorizeUpgrade(address newImplementation) internal view override onlyRole(Constants.UPGRADER_ROLE) {
         if (newImplementation == address(0)) revert Errors.ZeroAddressNotAllowed();
     }
 

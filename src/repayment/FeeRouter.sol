@@ -293,7 +293,7 @@ contract FeeRouter is
     }
 
     // --- UUPS Upgradeability ---
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(Constants.UPGRADER_ROLE) {
+    function _authorizeUpgrade(address newImplementation) internal view override onlyRole(Constants.UPGRADER_ROLE) {
         if (newImplementation == address(0)) revert Errors.ZeroAddressNotAllowed();
     }
 
