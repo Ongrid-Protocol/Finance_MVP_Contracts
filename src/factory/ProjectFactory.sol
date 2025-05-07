@@ -219,8 +219,11 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         projectId = projectCounter;
 
         // --- Deposit Handling ---
+        uint256 totalProjectCost = params.loanAmountRequested;
         uint256 depositAmount =
-            (params.loanAmountRequested * Constants.DEVELOPER_DEPOSIT_BPS) / Constants.BASIS_POINTS_DENOMINATOR;
+            (totalProjectCost * Constants.DEVELOPER_DEPOSIT_BPS) / Constants.BASIS_POINTS_DENOMINATOR;
+        uint256 financedAmount = totalProjectCost - depositAmount;
+
         if (depositAmount == 0) revert Errors.InvalidAmount(0);
 
         depositEscrow.fundDeposit(projectId, developer, depositAmount);
@@ -229,18 +232,19 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         // The deposit is proof that the project can now seek funding
 
         // --- Routing Logic (Vault vs. Pool) ---
-        if (params.loanAmountRequested >= Constants.HIGH_VALUE_THRESHOLD) {
-            // --- High-Value Project: Call internal helper ---
-            _deployAndInitializeHighValueProject(developer, projectId, params);
+        if (totalProjectCost >= Constants.HIGH_VALUE_THRESHOLD) {
+            // --- High-Value Project: Call internal helper with adjusted values ---
+            _deployAndInitializeHighValueProject(developer, projectId, params, depositAmount, financedAmount);
         } else {
-            // --- Low-Value Project: Submit to LiquidityPoolManager ---
+            // --- Low-Value Project: Submit to LiquidityPoolManager with adjusted values ---
             if (address(liquidityPoolManager) == address(0)) {
                 revert Errors.NotInitialized(); // Need Pool Manager address
             }
 
-            // Convert ProjectParams to ILiquidityPoolManager.ProjectParams
+            // Convert ProjectParams to ILiquidityPoolManager.ProjectParams with adjusted amount
             ILiquidityPoolManager.ProjectParams memory poolParams = ILiquidityPoolManager.ProjectParams({
-                loanAmountRequested: params.loanAmountRequested,
+                loanAmountRequested: financedAmount, // Only the 80% financed portion
+                totalProjectCost: totalProjectCost, // Total cost including deposit
                 requestedTenor: params.requestedTenor,
                 metadataCID: params.metadataCID
             });
@@ -248,7 +252,12 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
             (bool success, uint256 poolId) =
                 liquidityPoolManager.registerAndFundProject(projectId, developer, poolParams);
 
-            emit LowValueProjectSubmitted(projectId, developer, poolId, params.loanAmountRequested, success);
+            // If funding successful, release deposit to developer
+            if (success) {
+                depositEscrow.transferDepositToProject(projectId);
+            }
+
+            emit LowValueProjectSubmitted(projectId, developer, poolId, financedAmount, success);
         }
 
         // --- Update Developer Funding History ---
@@ -295,31 +304,40 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
      * @param _developer The developer's address.
      * @param _escrowAddress The address of the deployed DevEscrow clone.
      * @param _projectId The project ID.
-     * @param _loanAmount The requested loan amount.
+     * @param _financedAmount The amount to be financed (80% of total).
+     * @param _developerDeposit The developer's deposit amount (20% of total).
      * @param _requestedTenor The tenor of the project.
+     * @param _depositEscrowAddress The address of the deployed DevEscrow clone for the deposit.
      * @return vaultAddress The address of the deployed DirectProjectVault clone.
      */
     function _deployAndInitVault(
         address _developer,
         address _escrowAddress, // Must already be deployed
         uint256 _projectId,
-        uint256 _loanAmount,
-        uint48 _requestedTenor
+        uint256 _financedAmount,
+        uint256 _developerDeposit,
+        uint48 _requestedTenor,
+        address _depositEscrowAddress
     ) internal returns (address) {
         address vaultAddress = Clones.clone(vaultImplementation);
         if (vaultAddress == address(0)) revert Errors.InvalidState("Vault clone failed");
 
-        try IProjectVault(vaultAddress).initialize(
-            adminAddress,
-            address(usdcToken),
-            _developer,
-            _escrowAddress, // Pre-deployed escrow address
-            repaymentRouterAddress,
-            _projectId,
-            _loanAmount,
-            _requestedTenor,
-            0 // Initial APR
-        ) {} catch Error(string memory reason) {
+        IProjectVault.InitParams memory initParams = IProjectVault.InitParams({
+            admin: adminAddress,
+            usdcToken: address(usdcToken),
+            developer: _developer,
+            devEscrow: _escrowAddress,
+            repaymentRouter: repaymentRouterAddress,
+            projectId: _projectId,
+            financedAmount: _financedAmount,
+            developerDeposit: _developerDeposit,
+            loanTenor: _requestedTenor,
+            initialAprBps: 0, // Initial APR set to 0, can be updated by oracle
+            depositEscrowAddress: _depositEscrowAddress
+        });
+
+        try IProjectVault(vaultAddress).initialize(initParams) {}
+        catch Error(string memory reason) {
             revert(string(abi.encodePacked("Vault init failed: ", reason)));
         } catch {
             revert Errors.InvalidState("Vault init failed");
@@ -337,7 +355,9 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
     function _deployAndInitializeHighValueProject(
         address _developer,
         uint256 _projectId,
-        ProjectParams calldata _params
+        ProjectParams calldata _params,
+        uint256 _depositAmount,
+        uint256 _financedAmount
     ) internal {
         if (
             vaultImplementation == address(0) || devEscrowImplementation == address(0)
@@ -351,19 +371,25 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         address devEscrowAddress = _deployDevEscrow(
             _developer,
             address(this), // Temporary funding source until vault is deployed
-            _params.loanAmountRequested
+            _financedAmount
         );
 
         // 2. Then deploy vault with the escrow address
         address vaultAddress = _deployAndInitVault(
-            _developer, devEscrowAddress, _projectId, _params.loanAmountRequested, _params.requestedTenor
+            _developer,
+            devEscrowAddress,
+            _projectId,
+            _financedAmount,
+            _depositAmount,
+            _params.requestedTenor,
+            address(depositEscrow) // Pass deposit escrow address
         );
 
         // 3. Update escrow's funding source to point to vault (optional step)
         // This would require an additional method in the DevEscrow contract
         // that's not shown in the provided code, so we'll skip it
 
-        emit ProjectCreated(_projectId, _developer, vaultAddress, devEscrowAddress, _params.loanAmountRequested);
+        emit ProjectCreated(_projectId, _developer, vaultAddress, devEscrowAddress, _financedAmount);
     }
 
     // --- Pausable Functions ---

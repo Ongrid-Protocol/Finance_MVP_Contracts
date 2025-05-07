@@ -78,4 +78,12 @@ interface IDeveloperDepositEscrow {
      * @return bool True if the deposit has been released, false otherwise.
      */
     function isDepositSettled(uint256 projectId) external view returns (bool);
+
+    /**
+     * @notice Transfers the deposit to the developer when project funding is complete.
+     * @dev Called by an authorized project funding mechanism when project is funded.
+     * @param projectId The unique identifier for the project whose deposit is to be released.
+     * @return uint256 The amount that was transferred.
+     */
+    function transferDepositToProject(uint256 projectId) external returns (uint256);
 }

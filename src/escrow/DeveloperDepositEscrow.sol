@@ -155,6 +155,36 @@ contract DeveloperDepositEscrow is
         emit DepositSlashed(projectId, developer, amount, feeRecipient);
     }
 
+    /**
+     * @notice Transfers the deposit to the project upon funding.
+     * @dev Requires caller to have `RELEASER_ROLE`.
+     *      Checks that the deposit exists and hasn't already been settled.
+     * @param projectId The unique identifier for the project whose deposit is to be transferred.
+     * @return uint256 The amount transferred.
+     */
+    function transferDepositToProject(uint256 projectId)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyRole(Constants.RELEASER_ROLE)
+        returns (uint256)
+    {
+        uint256 amount = depositAmount[projectId];
+        address developer = projectDeveloper[projectId];
+
+        if (amount == 0) revert Errors.DepositNotFound(projectId);
+        if (depositSettled[projectId]) revert Errors.DepositAlreadyReleased(projectId);
+
+        // Mark as settled
+        depositSettled[projectId] = true;
+
+        // Transfer the deposit back to the developer
+        usdcToken.safeTransfer(developer, amount);
+
+        emit DepositReleased(projectId, developer, amount);
+        return amount;
+    }
+
     // --- View Functions ---
 
     /**

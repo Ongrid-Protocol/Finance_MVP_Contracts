@@ -34,7 +34,8 @@ interface ILiquidityPoolManager {
 
     // Project parameters passed from ProjectFactory
     struct ProjectParams {
-        uint256 loanAmountRequested;
+        uint256 loanAmountRequested; // Now only the 80% financed portion
+        uint256 totalProjectCost; // Total cost including deposit (100%)
         uint48 requestedTenor; // in days
         string metadataCID;
     }
@@ -91,8 +92,6 @@ interface ILiquidityPoolManager {
     /**
      * @notice Registers a low-value project and attempts to fund it from a suitable pool.
      * @dev Called by the PROJECT_HANDLER_ROLE (ProjectFactory).
-     *      Selects a pool, checks liquidity, fetches risk params (APR) via oracle,
-     *      deploys a DevEscrow instance, creates a LoanRecord, and transfers funds.
      * @param projectId The unique identifier for the project.
      * @param developer The address of the project developer.
      * @param params The parameters of the project (loan amount, tenor, metadata).

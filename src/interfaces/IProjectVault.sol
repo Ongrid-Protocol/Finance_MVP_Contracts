@@ -8,6 +8,21 @@ import {IERC20} from "./IERC20.sol";
  * @dev Interface for the DirectProjectVault contract, managing a single high-value project loan.
  */
 interface IProjectVault {
+    // --- Structs ---
+    struct InitParams {
+        address admin;
+        address usdcToken;
+        address developer;
+        address devEscrow;
+        address repaymentRouter;
+        uint256 projectId;
+        uint256 financedAmount;
+        uint256 developerDeposit;
+        uint48 loanTenor;
+        uint16 initialAprBps;
+        address depositEscrowAddress;
+    }
+
     // --- Events ---
     event Invested(address indexed investor, uint256 amountInvested, uint256 totalAssetsInvested);
     event FundingClosed(uint256 projectId, uint256 totalAssetsInvested);
@@ -23,27 +38,9 @@ interface IProjectVault {
     /**
      * @notice Initializes the DirectProjectVault contract.
      * @dev Called once after deployment (UUPS proxy pattern).
-     * @param _admin The address to grant DEFAULT_ADMIN_ROLE, PAUSER_ROLE, and UPGRADER_ROLE.
-     * @param _usdcToken The address of the USDC token contract.
-     * @param _developer The address of the project developer.
-     * @param _devEscrow The address of the associated DevEscrow contract for this project.
-     * @param _repaymentRouter The address of the RepaymentRouter contract.
-     * @param _projectId The unique identifier for this project.
-     * @param _loanAmount The total amount of USDC required for the loan.
-     * @param _loanTenor The duration of the loan in days.
-     * @param _initialAprBps The initial annual percentage rate in basis points (1% = 100 BPS).
+     * @param params Struct containing all initialization parameters.
      */
-    function initialize(
-        address _admin,
-        address _usdcToken,
-        address _developer,
-        address _devEscrow,
-        address _repaymentRouter,
-        uint256 _projectId,
-        uint256 _loanAmount,
-        uint48 _loanTenor, // Duration in days
-        uint16 _initialAprBps
-    ) external;
+    function initialize(InitParams calldata params) external;
 
     // --- Core Loan Lifecycle Functions ---
 

@@ -67,13 +67,14 @@ contract LiquidityPoolManager is
      */
     mapping(address => mapping(uint256 => uint256)) public userShares;
 
-    // Add a struct to hold temporary data during project funding
+    // Update the funding context to match the interface's ProjectParams
     struct ProjectFundingContext {
         uint256 projectId;
         uint256 poolId;
         address developer;
         address escrowAddress;
-        uint256 loanAmount;
+        uint256 loanAmount; // 80% financed amount
+        uint256 totalCost; // 100% total cost
         uint16 aprBps;
         uint48 requestedTenor;
         uint16 riskLevel;
@@ -239,8 +240,8 @@ contract LiquidityPoolManager is
     }
 
     // --- Project Funding & Repayment ---
-    /* @inheritdoc ILiquidityPoolManager
-     * @dev Selects pool (simple first-fit for MVP), fetches APR, deploys DevEscrow, stores record, funds escrow.
+    /**
+     * @inheritdoc ILiquidityPoolManager
      */
     function registerAndFundProject(uint256 projectId, address developer, ProjectParams calldata params)
         external
@@ -261,7 +262,8 @@ contract LiquidityPoolManager is
         // Initialize context
         context.projectId = projectId;
         context.developer = developer;
-        context.loanAmount = params.loanAmountRequested;
+        context.loanAmount = params.loanAmountRequested; // The 80% financed amount
+        context.totalCost = params.totalProjectCost; // The total project cost (100%)
         context.requestedTenor = params.requestedTenor;
 
         // Get risk level
@@ -283,18 +285,18 @@ contract LiquidityPoolManager is
             return (false, 0);
         }
 
-        // Create loan record
+        // Create loan record - note we store only the financed amount as principal
         _createLoanRecord(
             context.poolId,
             context.projectId,
             context.developer,
             context.escrowAddress,
-            context.loanAmount,
+            context.loanAmount, // Store only the 80% financed amount as the principal
             context.aprBps,
             context.requestedTenor
         );
 
-        // Transfer funds
+        // Transfer funds - only the financed portion from the pool
         _transferFundsToProject(contextId);
 
         // Post-funding setup (split into two steps)
@@ -308,7 +310,7 @@ contract LiquidityPoolManager is
         // Clean up the context
         _cleanupContext(contextId);
 
-        // Emit event and return
+        // Emit event - note we're only emitting the financed amount
         emit PoolProjectFunded(
             context.poolId,
             context.projectId,
@@ -606,12 +608,12 @@ contract LiquidityPoolManager is
     function _notifyEscrowAndSetDetails(uint256 contextId) internal {
         ProjectFundingContext storage context = fundingContexts[contextId];
 
-        // Notify escrow funding complete
-        try IDevEscrow(context.escrowAddress).notifyFundingComplete(context.loanAmount) {} catch {}
+        // Notify escrow of total funding (including deposit)
+        try IDevEscrow(context.escrowAddress).notifyFundingComplete(context.totalCost) {} catch {}
 
-        // Set project details in FeeRouter
+        // Set project details in FeeRouter with total cost for proper fee calculation
         try feeRouter.setProjectDetails(
-            context.projectId, context.loanAmount, context.developer, uint64(block.timestamp)
+            context.projectId, context.totalCost, context.developer, uint64(block.timestamp)
         ) {} catch {}
     }
 

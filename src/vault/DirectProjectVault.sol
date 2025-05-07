@@ -18,8 +18,9 @@ import {exp2, mulDivSigned} from "@prb-math/Common.sol";
 // Local Imports
 import {Constants} from "../common/Constants.sol";
 import {Errors} from "../common/Errors.sol";
-import {IProjectVault} from "../interfaces/IProjectVault.sol";
+import {IProjectVault, IERC20} from "../interfaces/IProjectVault.sol";
 import {IDevEscrow} from "../interfaces/IDevEscrow.sol";
+import {IDeveloperDepositEscrow} from "../interfaces/IDeveloperDepositEscrow.sol";
 // RepaymentRouter role needs to call handleRepayment
 // DevEscrow role needs to call triggerDrawdown
 // RiskOracle role needs to call updateRiskParams
@@ -79,48 +80,41 @@ contract DirectProjectVault is
     mapping(address => uint256) public principalClaimedByInvestor; // Tracks principal claimed by each investor
     mapping(address => uint256) public interestClaimedByInvestor; // Tracks interest claimed by each investor
 
+    // Add a deposit amount field to track the developer's equity portion
+    uint256 public developerDeposit;
+
+    // Add an address for the deposit escrow
+    address public depositEscrowAddress;
+
     // --- Initializer ---
     /**
      * @inheritdoc IProjectVault
      */
-    function initialize(
-        address _admin,
-        address _usdcToken,
-        address _developer,
-        address _devEscrow,
-        address _repaymentRouter,
-        uint256 _projectId,
-        uint256 _loanAmount,
-        uint48 _loanTenor, // Duration in days
-        uint16 _initialAprBps
-    ) public initializer {
-        if (
-            _admin == address(0) || _usdcToken == address(0) || _developer == address(0) || _devEscrow == address(0)
-                || _repaymentRouter == address(0)
-        ) {
-            revert Errors.ZeroAddressNotAllowed();
-        }
-        if (_loanAmount == 0) revert Errors.AmountCannotBeZero();
+    function initialize(InitParams calldata params) public initializer {
+        // Refactor validation to reduce stack usage
+        _validateAddresses(
+            params.admin,
+            params.usdcToken,
+            params.developer,
+            params.devEscrow,
+            params.repaymentRouter,
+            params.depositEscrowAddress
+        );
+        if (params.financedAmount == 0) revert Errors.AmountCannotBeZero();
 
         // Set immutable/config state
-        usdcToken = IERC20(_usdcToken);
-        developer = _developer;
-        devEscrow = IDevEscrow(_devEscrow);
-        projectId = _projectId;
-        loanAmount = _loanAmount;
-        loanTenor = _loanTenor;
-        currentAprBps = _initialAprBps;
+        usdcToken = IERC20(params.usdcToken);
+        developer = params.developer;
+        devEscrow = IDevEscrow(params.devEscrow);
+        projectId = params.projectId;
+        loanAmount = params.financedAmount;
+        developerDeposit = params.developerDeposit;
+        loanTenor = params.loanTenor;
+        currentAprBps = params.initialAprBps;
+        depositEscrowAddress = params.depositEscrowAddress;
 
         // Grant roles
-        _grantRole(Constants.DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(Constants.PAUSER_ROLE, _admin);
-        _grantRole(Constants.UPGRADER_ROLE, _admin);
-        // Role for RepaymentRouter to call handleRepayment
-        _grantRole(Constants.REPAYMENT_HANDLER_ROLE, _repaymentRouter);
-        // Role for DevEscrow to call triggerDrawdown
-        _grantRole(Constants.DEV_ESCROW_ROLE, _devEscrow);
-        // Role for Oracle Adapter - initially grant to admin, should be transferred
-        _grantRole(Constants.RISK_ORACLE_ROLE, _admin);
+        _setupRoles(params.admin, params.repaymentRouter, params.devEscrow);
 
         // Initial state values
         totalAssetsInvested = 0;
@@ -129,8 +123,38 @@ contract DirectProjectVault is
         loanClosed = false;
         principalRepaid = 0;
         interestRepaid = 0;
-        accruedInterestPerShare_RAY = 0; // Starts at zero
-            // lastInterestAccrualTimestamp will be set when funding closes
+        accruedInterestPerShare_RAY = 0;
+    }
+
+    /**
+     * @dev Validates address parameters aren't zero
+     */
+    function _validateAddresses(
+        address _admin,
+        address _usdcToken,
+        address _developer,
+        address _devEscrow,
+        address _repaymentRouter,
+        address _depositEscrow // Added deposit escrow address for validation
+    ) internal pure {
+        if (
+            _admin == address(0) || _usdcToken == address(0) || _developer == address(0) || _devEscrow == address(0)
+                || _repaymentRouter == address(0) || _depositEscrow == address(0) // Validate deposit escrow address
+        ) {
+            revert Errors.ZeroAddressNotAllowed();
+        }
+    }
+
+    /**
+     * @dev Sets up roles for the vault
+     */
+    function _setupRoles(address _admin, address _repaymentRouter, address _devEscrow) internal {
+        _grantRole(Constants.DEFAULT_ADMIN_ROLE, _admin);
+        _grantRole(Constants.PAUSER_ROLE, _admin);
+        _grantRole(Constants.UPGRADER_ROLE, _admin);
+        _grantRole(Constants.REPAYMENT_HANDLER_ROLE, _repaymentRouter);
+        _grantRole(Constants.DEV_ESCROW_ROLE, _devEscrow);
+        _grantRole(Constants.RISK_ORACLE_ROLE, _admin);
     }
 
     // --- Investment Phase ---    /**
@@ -188,12 +212,25 @@ contract DirectProjectVault is
 
         emit FundingClosed(projectId, totalAssetsInvested);
 
-        // Transfer funds directly to developer instead of escrow
+        // Transfer funds directly to developer
         if (totalAssetsInvested > 0) {
+            // The developer gets both the invested funds and their deposit
             usdcToken.safeTransfer(developer, totalAssetsInvested);
 
+            // Request the deposit to be transferred to the developer as well
+            // We can either do this via a direct call or via the factory
+            if (depositEscrowAddress != address(0)) {
+                try IDeveloperDepositEscrow(depositEscrowAddress).transferDepositToProject(projectId) {
+                    // Deposit transferred successfully
+                } catch {
+                    // Deposit transfer failed - log but continue
+                    emit DepositTransferFailed(projectId, developer, developerDeposit);
+                }
+            }
+
             // Notify escrow that funds have been transferred
-            try devEscrow.notifyFundingComplete(totalAssetsInvested) {} catch { /* Notification failed - ignore */ }
+            try devEscrow.notifyFundingComplete(totalAssetsInvested + developerDeposit) {}
+                catch { /* Notification failed - ignore */ }
         }
     }
 
@@ -562,4 +599,7 @@ contract DirectProjectVault is
     {
         return super.supportsInterface(interfaceId);
     }
+
+    // Add a new event
+    event DepositTransferFailed(uint256 indexed projectId, address indexed developer, uint256 depositAmount);
 }
