@@ -35,4 +35,23 @@ interface IRiskRateOracleAdapter {
      * @return uint256 The pool ID, or 0 if not a pool-managed project or not set.
      */
     function getPoolId(uint256 projectId) external view returns (uint256);
+
+    /**
+     * @notice Sets the risk level for a project.
+     * @param projectId The unique identifier of the project.
+     * @param riskLevel The risk level to set (1=low, 2=medium, 3=high).
+     */
+    function setProjectRiskLevel(uint256 projectId, uint16 riskLevel) external;
+
+    /**
+     * @notice Gets the risk level for a project.
+     * @param projectId The unique identifier of the project.
+     * @return The risk level of the project.
+     */
+    function getProjectRiskLevel(uint256 projectId) external view returns (uint16);
+
+    /**
+     * @notice Triggers a batch risk assessment for all projects.
+     */
+    function triggerBatchRiskAssessment() external;
 }

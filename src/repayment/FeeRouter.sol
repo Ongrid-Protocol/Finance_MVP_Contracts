@@ -35,6 +35,14 @@ contract FeeRouter is
         uint64 lastMgmtFeeTimestamp; // Timestamp when management fee was last calculated/charged
         uint256 loanAmount; // Original loan amount for Capital Raising Fee calc & AUM context
         address developer; // Developer address for checking funding history
+        RepaymentSchedule repaymentSchedule; // Added repayment schedule
+    }
+
+    // Add repayment schedule tracking
+    struct RepaymentSchedule {
+        uint8 scheduleType; // 1 = weekly, 2 = monthly
+        uint64 nextPaymentDue; // Timestamp when next payment is due
+        uint256 paymentAmount; // Fixed payment amount per period
     }
 
     // --- State Variables ---
@@ -132,9 +140,10 @@ contract FeeRouter is
 
         projectFeeInfo[projectId] = ProjectFeeDetails({
             creationTime: creationTime,
-            lastMgmtFeeTimestamp: creationTime, // Initially, last calc time is creation time
+            lastMgmtFeeTimestamp: creationTime,
             loanAmount: loanAmount,
-            developer: developer
+            developer: developer,
+            repaymentSchedule: RepaymentSchedule({scheduleType: 0, nextPaymentDue: 0, paymentAmount: 0})
         });
     }
 
@@ -306,5 +315,55 @@ contract FeeRouter is
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
+    }
+
+    // Add function to set repayment schedule
+    function setRepaymentSchedule(uint256 projectId, uint8 scheduleType, uint256 paymentAmount)
+        external
+        onlyRole(Constants.PROJECT_HANDLER_ROLE)
+    {
+        if (scheduleType != 1 && scheduleType != 2) revert Errors.InvalidValue("Invalid schedule type");
+        if (paymentAmount == 0) revert Errors.AmountCannotBeZero();
+
+        ProjectFeeDetails storage details = projectFeeInfo[projectId];
+        if (details.developer == address(0)) revert Errors.InvalidValue("Project details not set");
+
+        uint64 nextPaymentDue;
+        if (scheduleType == 1) {
+            // weekly
+            nextPaymentDue = uint64(details.creationTime + 7 days);
+        } else {
+            // monthly
+            nextPaymentDue = uint64(details.creationTime + 30 days);
+        }
+
+        details.repaymentSchedule = RepaymentSchedule({
+            scheduleType: scheduleType,
+            nextPaymentDue: nextPaymentDue,
+            paymentAmount: paymentAmount
+        });
+    }
+
+    // Add function to get next payment info
+    function getNextPaymentInfo(uint256 projectId) external view returns (uint64 dueDate, uint256 amount) {
+        ProjectFeeDetails storage details = projectFeeInfo[projectId];
+        if (details.developer == address(0)) revert Errors.InvalidValue("Project details not set");
+
+        return (details.repaymentSchedule.nextPaymentDue, details.repaymentSchedule.paymentAmount);
+    }
+
+    // Add function to update payment schedule after payment
+    function updatePaymentSchedule(uint256 projectId) external onlyRole(Constants.REPAYMENT_ROUTER_ROLE) {
+        ProjectFeeDetails storage details = projectFeeInfo[projectId];
+        if (details.developer == address(0)) revert Errors.InvalidValue("Project details not set");
+
+        RepaymentSchedule storage schedule = details.repaymentSchedule;
+        if (schedule.scheduleType == 1) {
+            // weekly
+            schedule.nextPaymentDue += 7 days;
+        } else if (schedule.scheduleType == 2) {
+            // monthly
+            schedule.nextPaymentDue += 30 days;
+        }
     }
 }

@@ -67,6 +67,27 @@ contract LiquidityPoolManager is
      */
     mapping(address => mapping(uint256 => uint256)) public userShares;
 
+    // Add a struct to hold temporary data during project funding
+    struct ProjectFundingContext {
+        uint256 projectId;
+        uint256 poolId;
+        address developer;
+        address escrowAddress;
+        uint256 loanAmount;
+        uint16 aprBps;
+        uint48 requestedTenor;
+        uint16 riskLevel;
+    }
+
+    // Storage mapping to hold temporary context
+    mapping(uint256 => ProjectFundingContext) private fundingContexts;
+    uint256 private nextFundingContextId;
+
+    // Get a new context ID
+    function _getNextContextId() internal returns (uint256) {
+        return ++nextFundingContextId;
+    }
+
     // --- Initializer ---
     /**
      * @notice Initializes the LiquidityPoolManager contract.
@@ -152,6 +173,8 @@ contract LiquidityPoolManager is
         returns (uint256 shares)
     {
         if (amount == 0) revert Errors.CannotInvestZero();
+        if (amount < 1 * Constants.USDC_UNIT) revert Errors.InvestmentBelowMinimum(1 * Constants.USDC_UNIT);
+
         PoolInfo storage pool = pools[poolId];
         if (!pool.exists) revert Errors.PoolDoesNotExist(poolId);
 
@@ -227,95 +250,75 @@ contract LiquidityPoolManager is
         onlyRole(Constants.PROJECT_HANDLER_ROLE)
         returns (bool success, uint256 poolId)
     {
-        // Validate inputs
+        // Input validation
         if (developer == address(0)) revert Errors.ZeroAddressNotAllowed();
         if (params.loanAmountRequested == 0) revert Errors.AmountCannotBeZero();
 
-        // Declare ALL variables at the beginning of the function to ensure proper scope
-        uint256 loanAmount = params.loanAmountRequested;
-        uint256 selectedPoolId = 0;
-        address escrowAddress;
-        uint16 aprBps = 1000; // Placeholder: 10% APR
+        // Create context to reduce stack usage
+        uint256 contextId = _getNextContextId();
+        ProjectFundingContext storage context = fundingContexts[contextId];
 
-        // Find a pool with sufficient liquidity
-        for (uint256 i = 1; i <= poolCount; i++) {
-            if (pools[i].exists && pools[i].totalAssets >= loanAmount) {
-                selectedPoolId = i;
-                break;
-            }
+        // Initialize context
+        context.projectId = projectId;
+        context.developer = developer;
+        context.loanAmount = params.loanAmountRequested;
+        context.requestedTenor = params.requestedTenor;
+
+        // Get risk level
+        try riskOracleAdapter.getProjectRiskLevel(projectId) returns (uint16 level) {
+            context.riskLevel = level;
+        } catch {
+            context.riskLevel = 2; // Default to medium risk
         }
 
-        if (selectedPoolId == 0) {
+        // Find matching pool
+        if (!_findBestMatchingPool(contextId, context.riskLevel, context.loanAmount)) {
             emit PoolProjectFunded(0, projectId, developer, address(0), 0, 0);
             return (false, 0);
         }
 
-        poolId = selectedPoolId;
-
-        // Deploy DevEscrow
-        escrowAddress = Clones.clone(devEscrowImplementation);
-        if (escrowAddress == address(0)) revert Errors.InvalidState("DevEscrow clone failed");
-
-        // Initialize the cloned DevEscrow using a low-level call
-        (bool successEscrow, bytes memory returnDataEscrow) = escrowAddress.call(
-            abi.encodeWithSignature(
-                "initialize(address,address,address,uint256,address,address)",
-                address(usdcToken),
-                developer,
-                address(this), // Pool Manager is the funding source
-                loanAmount,
-                milestoneAuthorizer,
-                address(this) // Pool Manager can pause its escrows
-            )
-        );
-        if (!successEscrow) {
-            // Try to decode the revert reason
-            if (returnDataEscrow.length > 0) {
-                // Attempt to decode revert string from returnDataEscrow
-                // Note: This requires Solidity 0.8.4+ and might fail if the revert is not a standard string error
-                string memory reason = abi.decode(returnDataEscrow, (string));
-                revert(string(abi.encodePacked("DevEscrow init failed: ", reason)));
-            } else {
-                revert Errors.InvalidState("DevEscrow init failed (low level)");
-            }
+        // Deploy escrow
+        if (!_deployAndInitializeEscrow(contextId)) {
+            emit PoolProjectFunded(0, projectId, developer, address(0), 0, 0);
+            return (false, 0);
         }
 
-        // Create LoanRecord
-        if (poolLoans[poolId][projectId].exists) revert Errors.InvalidState("Loan record already exists");
-        poolLoans[poolId][projectId] = LoanRecord({
-            exists: true,
-            developer: developer,
-            devEscrow: escrowAddress,
-            principal: loanAmount,
-            aprBps: aprBps,
-            loanTenor: params.requestedTenor,
-            principalRepaid: 0,
-            interestAccrued: 0,
-            startTime: uint64(block.timestamp),
-            isActive: true
-        });
+        // Create loan record
+        _createLoanRecord(
+            context.poolId,
+            context.projectId,
+            context.developer,
+            context.escrowAddress,
+            context.loanAmount,
+            context.aprBps,
+            context.requestedTenor
+        );
 
-        // Transfer Principal from Pool to DevEscrow
-        PoolInfo storage poolInfo = pools[poolId]; // Explicitly declare storage reference
-        if (poolInfo.totalAssets < loanAmount) revert Errors.InsufficientLiquidity();
-        poolInfo.totalAssets -= loanAmount;
+        // Transfer funds
+        _transferFundsToProject(contextId);
 
-        usdcToken.safeTransfer(escrowAddress, loanAmount);
+        // Post-funding setup (split into two steps)
+        _notifyEscrowAndSetDetails(contextId);
+        _setupRepaymentAndTarget(contextId);
 
-        // Set Project Details in FeeRouter
-        try feeRouter.setProjectDetails(projectId, loanAmount, developer, uint64(block.timestamp)) {}
-        catch Error(string memory reason) {
-            revert(string(abi.encodePacked("FeeRouter setDetails failed: ", reason)));
-        } catch {}
+        // Store return values before cleanup
+        bool result = true;
+        uint256 resultPoolId = context.poolId;
 
-        // Set Target in Oracle Adapter
-        try riskOracleAdapter.setTargetContract(projectId, address(this), poolId) {}
-        catch Error(string memory reason) {
-            revert(string(abi.encodePacked("Oracle setTarget failed: ", reason)));
-        } catch {}
+        // Clean up the context
+        _cleanupContext(contextId);
 
-        emit PoolProjectFunded(poolId, projectId, developer, escrowAddress, loanAmount, aprBps);
-        return (true, poolId);
+        // Emit event and return
+        emit PoolProjectFunded(
+            context.poolId,
+            context.projectId,
+            context.developer,
+            context.escrowAddress,
+            context.loanAmount,
+            context.aprBps
+        );
+
+        return (result, resultPoolId);
     }
 
     /**
@@ -466,5 +469,166 @@ contract LiquidityPoolManager is
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
+    }
+
+    // Add function to calculate payment amount
+    function calculateWeeklyPayment(uint256 loanAmount, uint16 aprBps, uint48 tenor) internal pure returns (uint256) {
+        // Simple calculation for weekly payment (principal + interest)
+        // Full principal divided by number of weeks plus weekly interest
+        uint256 weeklyPrincipal = loanAmount / (tenor * 7 / 365);
+        uint256 weeklyInterest = (loanAmount * uint256(aprBps)) / Constants.BASIS_POINTS_DENOMINATOR / 52;
+        return weeklyPrincipal + weeklyInterest;
+    }
+
+    // Add state variables for risk tracking
+    mapping(uint256 => uint16) public poolRiskLevels; // poolId => risk level (1=low, 2=medium, 3=high)
+    mapping(uint256 => uint16) public poolAprRates; // poolId => APR in basis points
+
+    // Add function to set pool risk level
+    function setPoolRiskLevel(uint256 poolId, uint16 riskLevel, uint16 baseAprBps)
+        external
+        onlyRole(Constants.DEFAULT_ADMIN_ROLE)
+    {
+        if (!pools[poolId].exists) revert Errors.PoolDoesNotExist(poolId);
+        if (riskLevel < 1 || riskLevel > 3) revert Errors.InvalidValue("Risk level must be 1-3");
+
+        poolRiskLevels[poolId] = riskLevel;
+        poolAprRates[poolId] = baseAprBps;
+    }
+
+    // Create a helper function to create loan record
+    function _createLoanRecord(
+        uint256 poolId,
+        uint256 projectId,
+        address developer,
+        address escrowAddress,
+        uint256 loanAmount,
+        uint16 aprBps,
+        uint48 requestedTenor
+    ) internal {
+        poolLoans[poolId][projectId] = LoanRecord({
+            exists: true,
+            developer: developer,
+            devEscrow: escrowAddress,
+            principal: loanAmount,
+            aprBps: aprBps,
+            loanTenor: requestedTenor,
+            principalRepaid: 0,
+            interestAccrued: 0,
+            startTime: uint64(block.timestamp),
+            isActive: true
+        });
+    }
+
+    // Find the best matching pool for a project
+    function _findBestMatchingPool(uint256 contextId, uint16 riskLevel, uint256 loanAmount)
+        internal
+        returns (bool success)
+    {
+        ProjectFundingContext storage context = fundingContexts[contextId];
+        uint256 selectedPoolId = 0;
+        uint16 bestAprBps = type(uint16).max;
+
+        for (uint256 i = 1; i <= poolCount; i++) {
+            if (pools[i].exists && pools[i].totalAssets >= loanAmount) {
+                uint16 poolRiskLevel = poolRiskLevels[i];
+
+                // Match project risk with pool risk - exact match preferred
+                if (poolRiskLevel == riskLevel) {
+                    uint16 poolAprBps = poolAprRates[i];
+                    if (poolAprBps < bestAprBps) {
+                        selectedPoolId = i;
+                        bestAprBps = poolAprBps;
+                    }
+                }
+                // If no exact match found yet, consider pools that accept higher risk
+                else if (selectedPoolId == 0 && poolRiskLevel > riskLevel) {
+                    uint16 poolAprBps = poolAprRates[i];
+                    if (poolAprBps < bestAprBps) {
+                        selectedPoolId = i;
+                        bestAprBps = poolAprBps;
+                    }
+                }
+            }
+        }
+
+        if (selectedPoolId == 0) {
+            return false;
+        }
+
+        context.poolId = selectedPoolId;
+        context.aprBps = bestAprBps;
+        return true;
+    }
+
+    // Deploy and initialize the DevEscrow contract
+    function _deployAndInitializeEscrow(uint256 contextId) internal returns (bool success) {
+        ProjectFundingContext storage context = fundingContexts[contextId];
+
+        address escrowAddress = Clones.clone(devEscrowImplementation);
+        if (escrowAddress == address(0)) revert Errors.InvalidState("DevEscrow clone failed");
+
+        bool successEscrow;
+        (successEscrow,) = escrowAddress.call(
+            abi.encodeWithSignature(
+                "initialize(address,address,address,uint256,address,address)",
+                address(usdcToken),
+                context.developer,
+                address(this),
+                context.loanAmount,
+                address(0),
+                address(this)
+            )
+        );
+
+        if (!successEscrow) {
+            return false;
+        }
+
+        context.escrowAddress = escrowAddress;
+        return true;
+    }
+
+    // Transfer funds to the developer
+    function _transferFundsToProject(uint256 contextId) internal returns (bool success) {
+        ProjectFundingContext storage context = fundingContexts[contextId];
+
+        PoolInfo storage poolInfo = pools[context.poolId];
+        if (poolInfo.totalAssets < context.loanAmount) revert Errors.InsufficientLiquidity();
+
+        poolInfo.totalAssets -= context.loanAmount;
+        usdcToken.safeTransfer(context.developer, context.loanAmount);
+
+        return true;
+    }
+
+    // Notify escrow and set project details
+    function _notifyEscrowAndSetDetails(uint256 contextId) internal {
+        ProjectFundingContext storage context = fundingContexts[contextId];
+
+        // Notify escrow funding complete
+        try IDevEscrow(context.escrowAddress).notifyFundingComplete(context.loanAmount) {} catch {}
+
+        // Set project details in FeeRouter
+        try feeRouter.setProjectDetails(
+            context.projectId, context.loanAmount, context.developer, uint64(block.timestamp)
+        ) {} catch {}
+    }
+
+    // Setup repayment schedule and oracle target
+    function _setupRepaymentAndTarget(uint256 contextId) internal {
+        ProjectFundingContext storage context = fundingContexts[contextId];
+
+        // Calculate and set repayment schedule
+        uint256 weeklyPayment = calculateWeeklyPayment(context.loanAmount, context.aprBps, context.requestedTenor);
+        try feeRouter.setRepaymentSchedule(context.projectId, 1, weeklyPayment) {} catch {}
+
+        // Set oracle target
+        try riskOracleAdapter.setTargetContract(context.projectId, address(this), context.poolId) {} catch {}
+    }
+
+    // Add this function to clean up contexts after use
+    function _cleanupContext(uint256 contextId) internal {
+        delete fundingContexts[contextId];
     }
 }

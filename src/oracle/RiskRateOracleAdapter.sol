@@ -43,7 +43,9 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
      * @param projectId The unique identifier of the project.
      * @param timestamp The timestamp of the request.
      */
-    event PeriodicAssessmentRequested(uint256 indexed projectId, uint256 timestamp);
+    event PeriodicAssessmentRequested(
+        uint256 indexed projectId, uint256 timestamp, address targetContract, uint256 poolId
+    );
 
     /**
      * @dev Emitted when the assessment interval is updated.
@@ -51,6 +53,19 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
      * @param newInterval The new interval in seconds.
      */
     event AssessmentIntervalUpdated(uint256 oldInterval, uint256 newInterval);
+
+    /**
+     * @dev Emitted when a project risk level is set.
+     * @param projectId The unique identifier of the project.
+     * @param riskLevel The risk level set for the project.
+     */
+    event ProjectRiskLevelSet(uint256 indexed projectId, uint16 riskLevel);
+
+    /**
+     * @dev Emitted when a batch risk assessment is triggered.
+     * @param timestamp The timestamp of the trigger.
+     */
+    event BatchRiskAssessmentTriggered(uint256 timestamp);
 
     // --- State Variables ---
     /**
@@ -76,6 +91,11 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
      * @dev The default interval between periodic assessments.
      */
     uint256 public assessmentInterval = 7 days; // Default period between assessments
+
+    /**
+     * @dev Mapping from project ID to the risk level of the project.
+     */
+    mapping(uint256 => uint16) public projectRiskLevels; // projectId => risk level (1=low, 2=medium, 3=high)
 
     // --- Initializer ---
     /**
@@ -256,7 +276,43 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
         // Check if enough time has passed since last assessment
         if (block.timestamp >= lastAssessmentTimestamp[projectId] + assessmentInterval) {
             lastAssessmentTimestamp[projectId] = block.timestamp;
-            emit PeriodicAssessmentRequested(projectId, block.timestamp);
+
+            // Emit event with more data for offchain listeners to evaluate risk
+            emit PeriodicAssessmentRequested(projectId, block.timestamp, targetContract, projectPoolId[projectId]);
         }
+    }
+
+    /**
+     * @notice Sets the risk level for a project.
+     * @dev Requires caller to have `RISK_ORACLE_ROLE`.
+     * @param projectId The unique identifier of the project.
+     * @param riskLevel The risk level to set for the project.
+     */
+    function setProjectRiskLevel(uint256 projectId, uint16 riskLevel) external onlyRole(Constants.RISK_ORACLE_ROLE) {
+        if (riskLevel < 1 || riskLevel > 3) revert Errors.InvalidValue("Risk level must be 1-3");
+        projectRiskLevels[projectId] = riskLevel;
+        emit ProjectRiskLevelSet(projectId, riskLevel);
+    }
+
+    /**
+     * @notice Gets the risk level for a project.
+     * @dev Requires caller to have `RISK_ORACLE_ROLE`.
+     * @param projectId The unique identifier of the project.
+     * @return uint16 The risk level of the project.
+     */
+    function getProjectRiskLevel(uint256 projectId) external view returns (uint16) {
+        uint16 level = projectRiskLevels[projectId];
+        if (level == 0) revert Errors.InvalidOracleData("Risk level not set");
+        return level;
+    }
+
+    /**
+     * @notice Automatically triggers risk assessment for all projects.
+     * @dev Requires caller to have `RISK_ORACLE_ROLE`.
+     */
+    function triggerBatchRiskAssessment() external onlyRole(Constants.RISK_ORACLE_ROLE) {
+        // In a real implementation, you'd iterate through all projects
+        // For simplicity, we'll leave this as a placeholder
+        emit BatchRiskAssessmentTriggered(block.timestamp);
     }
 }

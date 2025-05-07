@@ -86,4 +86,26 @@ interface IFeeRouter {
      * @return address The carbon treasury address.
      */
     function getCarbonTreasury() external view returns (address);
+
+    /**
+     * @notice Sets the repayment schedule for a project.
+     * @param projectId The unique identifier of the project.
+     * @param scheduleType The schedule type (1=weekly, 2=monthly).
+     * @param paymentAmount The amount to be paid per period.
+     */
+    function setRepaymentSchedule(uint256 projectId, uint8 scheduleType, uint256 paymentAmount) external;
+
+    /**
+     * @notice Gets the next payment information for a project.
+     * @param projectId The unique identifier of the project.
+     * @return dueDate The timestamp when the next payment is due.
+     * @return amount The amount to be paid.
+     */
+    function getNextPaymentInfo(uint256 projectId) external view returns (uint64 dueDate, uint256 amount);
+
+    /**
+     * @notice Updates the payment schedule after a payment is made.
+     * @param projectId The unique identifier of the project.
+     */
+    function updatePaymentSchedule(uint256 projectId) external;
 }

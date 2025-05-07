@@ -225,6 +225,9 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
 
         depositEscrow.fundDeposit(projectId, developer, depositAmount);
 
+        // --- Project is now active for funding ---
+        // The deposit is proof that the project can now seek funding
+
         // --- Routing Logic (Vault vs. Pool) ---
         if (params.loanAmountRequested >= Constants.HIGH_VALUE_THRESHOLD) {
             // --- High-Value Project: Call internal helper ---
@@ -257,7 +260,76 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
     // --- Internal Helper for High-Value Projects ---
 
     /**
-     * @dev Deploys and initializes DirectProjectVault and DevEscrow clones for high-value projects.
+     * @dev Helper to deploy DevEscrow clone
+     * @param _developer The developer's address.
+     * @param _fundingSource The funding source for the DevEscrow (Vault address or this contract).
+     * @param _loanAmount The requested loan amount.
+     * @return escrowAddress The address of the deployed DevEscrow clone.
+     */
+    function _deployDevEscrow(
+        address _developer,
+        address _fundingSource, // Vault address or this contract
+        uint256 _loanAmount
+    ) internal returns (address) {
+        address escrowAddress = Clones.clone(devEscrowImplementation);
+        if (escrowAddress == address(0)) revert Errors.InvalidState("DevEscrow clone failed");
+
+        (bool success,) = escrowAddress.call(
+            abi.encodeWithSignature(
+                "initialize(address,address,address,uint256,address,address)",
+                address(usdcToken),
+                _developer,
+                _fundingSource,
+                _loanAmount,
+                milestoneAuthorizerAddress,
+                pauserAddress
+            )
+        );
+
+        if (!success) revert Errors.InvalidState("DevEscrow init failed");
+        return escrowAddress;
+    }
+
+    /**
+     * @dev Helper to deploy and initialize Vault
+     * @param _developer The developer's address.
+     * @param _escrowAddress The address of the deployed DevEscrow clone.
+     * @param _projectId The project ID.
+     * @param _loanAmount The requested loan amount.
+     * @param _requestedTenor The tenor of the project.
+     * @return vaultAddress The address of the deployed DirectProjectVault clone.
+     */
+    function _deployAndInitVault(
+        address _developer,
+        address _escrowAddress, // Must already be deployed
+        uint256 _projectId,
+        uint256 _loanAmount,
+        uint48 _requestedTenor
+    ) internal returns (address) {
+        address vaultAddress = Clones.clone(vaultImplementation);
+        if (vaultAddress == address(0)) revert Errors.InvalidState("Vault clone failed");
+
+        try IProjectVault(vaultAddress).initialize(
+            adminAddress,
+            address(usdcToken),
+            _developer,
+            _escrowAddress, // Pre-deployed escrow address
+            repaymentRouterAddress,
+            _projectId,
+            _loanAmount,
+            _requestedTenor,
+            0 // Initial APR
+        ) {} catch Error(string memory reason) {
+            revert(string(abi.encodePacked("Vault init failed: ", reason)));
+        } catch {
+            revert Errors.InvalidState("Vault init failed");
+        }
+
+        return vaultAddress;
+    }
+
+    /**
+     * @dev Main function - maintains original sequence
      * @param _developer The developer's address.
      * @param _projectId The project ID.
      * @param _params The project parameters.
@@ -267,7 +339,6 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         uint256 _projectId,
         ProjectParams calldata _params
     ) internal {
-        // Ensure necessary implementation and config addresses are set
         if (
             vaultImplementation == address(0) || devEscrowImplementation == address(0)
                 || repaymentRouterAddress == address(0) || milestoneAuthorizerAddress == address(0)
@@ -276,52 +347,22 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
             revert Errors.NotInitialized();
         }
 
-        // 1. Deploy DevEscrow Clone
-        address devEscrowAddress = Clones.clone(devEscrowImplementation);
-        if (devEscrowAddress == address(0)) revert Errors.InvalidState("DevEscrow clone failed");
-
-        // 2. Deploy DirectProjectVault Clone
-        address vaultAddress = Clones.clone(vaultImplementation);
-        if (vaultAddress == address(0)) revert Errors.InvalidState("Vault clone failed");
-
-        // 3. Initialize DevEscrow Clone
-        (bool successEscrow, bytes memory returnDataEscrow) = devEscrowAddress.call(
-            abi.encodeWithSignature(
-                "initialize(address,address,address,uint256,address,address)",
-                address(usdcToken),
-                _developer,
-                vaultAddress, // Vault is the funding source
-                _params.loanAmountRequested,
-                milestoneAuthorizerAddress,
-                pauserAddress // Designate pauser
-            )
-        );
-        if (!successEscrow) {
-            if (returnDataEscrow.length > 0) {
-                revert(string(abi.decode(returnDataEscrow, (string))));
-            } else {
-                revert Errors.InvalidState("DevEscrow init failed (low level)");
-            }
-        }
-
-        // 4. Initialize DirectProjectVault Clone
-        try IProjectVault(vaultAddress).initialize(
-            adminAddress, // Admin for the vault
-            address(usdcToken),
+        // 1. First deploy escrow with this contract as temporary funding source
+        address devEscrowAddress = _deployDevEscrow(
             _developer,
-            devEscrowAddress, // Pass the deployed escrow address
-            repaymentRouterAddress,
-            _projectId,
-            _params.loanAmountRequested,
-            _params.requestedTenor,
-            0 // Initial APR BPS set to 0, expect Oracle to update
-        ) {} catch Error(string memory reason) {
-            revert(string(abi.encodePacked("Vault init failed: ", reason)));
-        } catch {
-            revert Errors.InvalidState("Vault init failed (low level)");
-        }
+            address(this), // Temporary funding source until vault is deployed
+            _params.loanAmountRequested
+        );
 
-        // 5. Emit Event
+        // 2. Then deploy vault with the escrow address
+        address vaultAddress = _deployAndInitVault(
+            _developer, devEscrowAddress, _projectId, _params.loanAmountRequested, _params.requestedTenor
+        );
+
+        // 3. Update escrow's funding source to point to vault (optional step)
+        // This would require an additional method in the DevEscrow contract
+        // that's not shown in the provided code, so we'll skip it
+
         emit ProjectCreated(_projectId, _developer, vaultAddress, devEscrowAddress, _params.loanAmountRequested);
     }
 

@@ -140,6 +140,7 @@ contract DirectProjectVault is
     function invest(uint256 amount) external override nonReentrant whenNotPaused {
         if (fundingClosed) revert Errors.FundingClosed();
         if (amount == 0) revert Errors.CannotInvestZero();
+        if (amount < 10 * Constants.USDC_UNIT) revert Errors.InvestmentBelowMinimum(10 * Constants.USDC_UNIT);
 
         uint256 currentTotal = totalAssetsInvested;
         uint256 potentialTotal = currentTotal + amount;
@@ -187,11 +188,12 @@ contract DirectProjectVault is
 
         emit FundingClosed(projectId, totalAssetsInvested);
 
-        // Transfer collected funds to DevEscrow
+        // Transfer funds directly to developer instead of escrow
         if (totalAssetsInvested > 0) {
-            usdcToken.safeTransfer(address(devEscrow), totalAssetsInvested);
-            // Notify escrow via its fundEscrow function (optional but good practice)
-            try devEscrow.fundEscrow(totalAssetsInvested) {} catch { /* Escrow notification failed - log or ignore */ }
+            usdcToken.safeTransfer(developer, totalAssetsInvested);
+
+            // Notify escrow that funds have been transferred
+            try devEscrow.notifyFundingComplete(totalAssetsInvested) {} catch { /* Notification failed - ignore */ }
         }
     }
 
