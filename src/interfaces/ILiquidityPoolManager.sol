@@ -151,20 +151,11 @@ interface ILiquidityPoolManager {
     function getUserShares(uint256 poolId, address user) external view returns (uint256);
 
     /**
-     * @notice Calculates the amount of USDC that would be received for redeeming a given number of shares from a pool.
-     * @dev Preview function, does not execute redemption.
-     * @param poolId The ID of the pool.
-     * @param shares The amount of shares to hypothetically redeem.
-     * @return uint256 The corresponding amount of USDC.
-     */
-    function previewRedeem(uint256 poolId, uint256 shares) external view returns (uint256);
-
-    /**
      * @notice Calculates the number of LP shares that would be minted for depositing a given amount of USDC into a pool.
      * @dev Preview function, does not execute deposit.
      * @param poolId The ID of the pool.
      * @param amount The amount of USDC to hypothetically deposit.
      * @return uint256 The corresponding number of LP shares.
      */
-    function previewDeposit(uint256 poolId, uint256 amount) external view returns (uint256);
+    // function previewDeposit(uint256 poolId, uint256 amount) external view returns (uint256);
 }

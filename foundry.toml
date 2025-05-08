@@ -1,7 +1,10 @@
 [profile.default]
 src = "src"
 out = "out"
+optimizer = true
+optimizer_runs = 10000
 libs = ["lib"]
+
 
 # Remappings for imported libraries
 remappings = [

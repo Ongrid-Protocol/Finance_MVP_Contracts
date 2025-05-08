@@ -113,8 +113,9 @@ contract LiquidityPoolManager is
     ) public initializer {
         if (
             _admin == address(0) || _usdcToken == address(0) || _feeRouter == address(0)
-                || _developerRegistry == address(0) || _devEscrowImplementation == address(0)
-                || _repaymentRouter == address(0) || _milestoneAuthorizer == address(0)
+                || _developerRegistry == address(0) || _riskRateOracleAdapter == address(0)
+                || _devEscrowImplementation == address(0) || _repaymentRouter == address(0)
+                || _milestoneAuthorizer == address(0)
         ) {
             revert Errors.ZeroAddressNotAllowed();
         }
@@ -414,38 +415,6 @@ contract LiquidityPoolManager is
     function getUserShares(uint256 poolId, address user) external view override returns (uint256) {
         // No check needed? Returns 0 if not found.
         return userShares[user][poolId];
-    }
-
-    /**
-     * @inheritdoc ILiquidityPoolManager
-     */
-    function previewDeposit(uint256 poolId, uint256 amount) external view override returns (uint256 shares) {
-        PoolInfo storage pool = pools[poolId];
-        if (!pool.exists) revert Errors.PoolDoesNotExist(poolId);
-        if (amount == 0) return 0;
-
-        uint256 currentTotalAssets = pool.totalAssets;
-        uint256 currentTotalShares = pool.totalShares;
-        if (currentTotalAssets == 0 || currentTotalShares == 0) {
-            return amount;
-        } else {
-            return (amount * currentTotalShares) / currentTotalAssets;
-        }
-    }
-
-    /**
-     * @inheritdoc ILiquidityPoolManager
-     */
-    function previewRedeem(uint256 poolId, uint256 shares) external view override returns (uint256 assets) {
-        PoolInfo storage pool = pools[poolId];
-        if (!pool.exists) revert Errors.PoolDoesNotExist(poolId);
-        if (shares == 0) return 0;
-
-        uint256 currentTotalAssets = pool.totalAssets;
-        uint256 currentTotalShares = pool.totalShares;
-        if (currentTotalShares == 0) return 0;
-
-        return (shares * currentTotalAssets) / currentTotalShares;
     }
 
     // --- Pausable Functions ---
