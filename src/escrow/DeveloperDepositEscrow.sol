@@ -8,6 +8,8 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {Constants} from "../common/Constants.sol";
 import {Errors} from "../common/Errors.sol";
 import {IDeveloperDepositEscrow} from "../interfaces/IDeveloperDepositEscrow.sol"; // Import interface
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 /**
  * @title DeveloperDepositEscrow
@@ -246,5 +248,33 @@ contract DeveloperDepositEscrow is
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
+    }
+
+    // --- Admin Functions ---
+
+    /**
+     * @notice Explicitly override grantRole to resolve multiple inheritance.
+     * @dev Required because the contract inherits the same function signature
+     *      from both AccessControlEnumerable and IDeveloperDepositEscrow.
+     * @param role The role to grant.
+     * @param account The address to grant the role to.
+     */
+    function grantRole(bytes32 role, address account)
+        public
+        virtual
+        override(AccessControl, IAccessControl, IDeveloperDepositEscrow)
+        onlyRole(getRoleAdmin(role))
+    {
+        super.grantRole(role, account);
+    }
+
+    /**
+     * @notice Allows the DEFAULT_ADMIN_ROLE to set the admin for any role.
+     * @dev This is a privileged function for setup and emergency adjustments.
+     * @param role The role whose admin is to be changed.
+     * @param adminRole The role that will become the new admin of `role`.
+     */
+    function setRoleAdminExternally(bytes32 role, bytes32 adminRole) external onlyRole(Constants.DEFAULT_ADMIN_ROLE) {
+        _setRoleAdmin(role, adminRole);
     }
 }

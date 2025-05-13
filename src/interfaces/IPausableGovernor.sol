@@ -35,6 +35,13 @@ interface IPausableGovernor {
     event Unpaused(address indexed target, address indexed unpauser);
 
     /**
+     * @dev Emitted when a warning occurs during pause/unpause operations.
+     * @param target The address of the target contract.
+     * @param warning The warning message.
+     */
+    event PauseWarning(address indexed target, string warning);
+
+    /**
      * @notice Adds a contract address to the list of contracts managed by this governor.
      * @dev Only callable by the DEFAULT_ADMIN_ROLE.
      * @param target The address of the pausable contract to add.

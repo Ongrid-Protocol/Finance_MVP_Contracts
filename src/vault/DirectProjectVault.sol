@@ -24,7 +24,7 @@ import {IDeveloperDepositEscrow} from "../interfaces/IDeveloperDepositEscrow.sol
 // RepaymentRouter role needs to call handleRepayment
 // DevEscrow role needs to call triggerDrawdown
 // RiskOracle role needs to call updateRiskParams
-
+import "forge-std/console.sol";
 /**
  * @title DirectProjectVault
  * @dev Manages the lifecycle of a single, high-value (>=$50k) solar project loan.
@@ -35,6 +35,7 @@ import {IDeveloperDepositEscrow} from "../interfaces/IDeveloperDepositEscrow.sol
  *      Uses UUPS for upgradeability.
  * @notice This contract is deployed as a minimal proxy (clone) by the ProjectFactory.
  */
+
 contract DirectProjectVault is
     Initializable,
     AccessControlEnumerable,
@@ -91,6 +92,9 @@ contract DirectProjectVault is
      * @inheritdoc IProjectVault
      */
     function initialize(InitParams calldata params) public initializer {
+        // Note: With OpenZeppelin 5.x, initializers like __Pausable_init() are automatically
+        // handled when inheriting from the base contracts. No need to explicitly call them.
+
         // Refactor validation to reduce stack usage
         _validateAddresses(
             params.admin,
@@ -113,8 +117,8 @@ contract DirectProjectVault is
         currentAprBps = params.initialAprBps;
         depositEscrowAddress = params.depositEscrowAddress;
 
-        // Grant roles
-        _setupRoles(params.admin, params.repaymentRouter, params.devEscrow);
+        // Grant roles - use params.riskOracleAdapter from the initialization parameters
+        _setupRoles(params.admin, params.repaymentRouter, params.devEscrow, params.riskOracleAdapter);
 
         // Initial state values
         totalAssetsInvested = 0;
@@ -148,13 +152,22 @@ contract DirectProjectVault is
     /**
      * @dev Sets up roles for the vault
      */
-    function _setupRoles(address _admin, address _repaymentRouter, address _devEscrow) internal {
+    function _setupRoles(address _admin, address _repaymentRouter, address, /* _devEscrow */ address _riskOracleAdapter)
+        internal
+    {
         _grantRole(Constants.DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(Constants.PAUSER_ROLE, _admin);
         _grantRole(Constants.UPGRADER_ROLE, _admin);
         _grantRole(Constants.REPAYMENT_HANDLER_ROLE, _repaymentRouter);
-        _grantRole(Constants.DEV_ESCROW_ROLE, _devEscrow);
-        _grantRole(Constants.RISK_ORACLE_ROLE, _admin);
+        // _grantRole(Constants.DEV_ESCROW_ROLE, _devEscrow); // Commented out as triggerDrawdown is being removed
+
+        // Grant RISK_ORACLE_ROLE to the risk oracle adapter if provided
+        if (_riskOracleAdapter != address(0)) {
+            _grantRole(Constants.RISK_ORACLE_ROLE, _riskOracleAdapter);
+        } else {
+            // Fallback: grant to admin if no oracle adapter is provided
+            _grantRole(Constants.RISK_ORACLE_ROLE, _admin);
+        }
     }
 
     // --- Investment Phase ---    /**
@@ -218,19 +231,43 @@ contract DirectProjectVault is
             usdcToken.safeTransfer(developer, totalAssetsInvested);
 
             // Request the deposit to be transferred to the developer as well
-            // We can either do this via a direct call or via the factory
+            // Track deposit transfer success to ensure funds aren't locked
+            bool depositTransferSuccess = false;
+
             if (depositEscrowAddress != address(0)) {
-                try IDeveloperDepositEscrow(depositEscrowAddress).transferDepositToProject(projectId) {
-                    // Deposit transferred successfully
-                } catch {
-                    // Deposit transfer failed - log but continue
+                try IDeveloperDepositEscrow(depositEscrowAddress).transferDepositToProject(projectId) returns (
+                    uint256 transferredAmount
+                ) {
+                    // Deposit transferred successfully - validate the transferred amount
+                    if (transferredAmount == developerDeposit) {
+                        depositTransferSuccess = true;
+                    } else {
+                        // Amount mismatch - partial transfer or other issue
+                        emit DepositTransferFailed(projectId, developer, developerDeposit);
+                        console.log("Deposit transfer amount mismatch for project:", projectId);
+                        console.log("Expected:", developerDeposit, "Received:", transferredAmount);
+                    }
+                } catch Error(string memory reason) {
                     emit DepositTransferFailed(projectId, developer, developerDeposit);
+                    console.log("Deposit transfer failed for project:", projectId, "Reason:", reason);
+                } catch (bytes memory) {
+                    emit DepositTransferFailed(projectId, developer, developerDeposit);
+                    console.log("Deposit transfer failed for project with low-level error:", projectId);
                 }
+            } else {
+                console.log("No deposit escrow address set for project:", projectId);
             }
 
             // Notify escrow that funds have been transferred
-            try devEscrow.notifyFundingComplete(totalAssetsInvested + developerDeposit) {}
-                catch { /* Notification failed - ignore */ }
+            // Include the deposit in the total only if it was successfully transferred
+            uint256 totalAmountTransferred =
+                depositTransferSuccess ? totalAssetsInvested + developerDeposit : totalAssetsInvested;
+
+            try devEscrow.notifyFundingComplete(totalAmountTransferred) {
+                console.log("Escrow notified of funding complete for project:", projectId);
+            } catch {
+                console.log("Failed to notify escrow of funding complete for project:", projectId);
+            }
         }
     }
 
@@ -435,17 +472,6 @@ contract DirectProjectVault is
     }
 
     /**
-     * @inheritdoc IProjectVault
-     * @dev This function is called by the associated DevEscrow contract.
-     */
-    function triggerDrawdown(uint256 amount) external override onlyRole(Constants.DEV_ESCROW_ROLE) whenNotPaused {
-        // This function mainly serves as an acknowledgement and event trigger.
-        // The actual funds are transferred directly from DevEscrow to the developer.
-        // No state change needed here unless tracking total drawdowns in the vault is desired.
-        emit DrawdownExecuted(projectId, developer, amount);
-    }
-
-    /**
      * @dev Internal function called when principalRepaid meets totalAssetsInvested.
      */
     function _closeLoan() internal {
@@ -573,6 +599,14 @@ contract DirectProjectVault is
 
     function isFundingClosed() external view override returns (bool) {
         return fundingClosed;
+    }
+
+    // --- Implementation for IFundingSource (called by RepaymentRouter) ---
+    function getOutstandingPrincipal(uint256, /*poolId*/ uint256 /*_projectId*/ ) external view returns (uint256) {
+        // projectId argument is for interface consistency, this vault maps to its own projectId state variable.
+        // poolId is unused for a DirectProjectVault.
+        if (!fundingClosed) return loanAmount; // If not funded, outstanding is the full target loan amount
+        return loanAmount - principalRepaid; // loanAmount is the 80% financed portion
     }
 
     // --- Pausable Functions ---

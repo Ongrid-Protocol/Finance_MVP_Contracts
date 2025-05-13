@@ -111,15 +111,15 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
         _grantRole(Constants.UPGRADER_ROLE, _admin); // Admin can upgrade
         _grantRole(Constants.RISK_ORACLE_ROLE, _admin); // Admin acts as the oracle initially
 
-        // __AccessControl_init(); // Implicitly called?
-        // __UUPSUpgradeable_init(); // Implicitly called?
+        // Note: With OpenZeppelin 5.x, initializers like __AccessControl_init() and __UUPSUpgradeable_init()
+        // are automatically handled when inheriting from the base contracts. No need to explicitly call them.
     }
 
     // --- Configuration ---
 
     /**
      * @notice Sets or updates the target contract address for a given project ID.
-     * @dev Requires caller to have `DEFAULT_ADMIN_ROLE`.
+     * @dev Requires caller to have `PROJECT_HANDLER_ROLE`.
      *      This maps a project to its managing contract (Vault or PoolManager).
      *      For pool-managed projects, also sets the `poolId`.
      * @param projectId The unique identifier of the project.
@@ -128,7 +128,7 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
      */
     function setTargetContract(uint256 projectId, address targetContract, uint256 poolId)
         external
-        onlyRole(Constants.DEFAULT_ADMIN_ROLE)
+        onlyRole(Constants.PROJECT_HANDLER_ROLE)
     {
         if (targetContract == address(0)) revert Errors.ZeroAddressNotAllowed();
         // Optional: Add check if projectId already has a target, depending on policy
@@ -174,46 +174,40 @@ contract RiskRateOracleAdapter is Initializable, AccessControlEnumerable, UUPSUp
         address target = projectTargetContract[projectId];
         if (target == address(0)) revert Errors.TargetContractNotSet(projectId);
 
-        // --- Call Target Contract --- //
-        // We need to determine if the target is a Vault or PoolManager to call correctly.
-        // Approach 1: Try-Catch (calls vault first, if fails assumes pool manager)
-        // Approach 2: Check interface support (safer)
-        // Approach 3: Store target type (adds storage cost)
-
-        // Let's use Try-Catch for simplicity in MVP, assuming distinct function signatures or roles prevent ambiguity.
-        // Vaults have updateRiskParams(uint16 newAprBps)
-        // Pools have updateRiskParams(uint256 poolId, uint256 projectId, uint16 newAprBps)
-        // Tenor update might not be supported post-launch, primarily pushing APR.
+        // Get the associated poolId - if non-zero, it's a pool-managed project
+        uint256 poolId = projectPoolId[projectId];
 
         bool success = false;
-        bytes memory errorData;
 
-        // Attempt to call DirectProjectVault's updateRiskParams(uint16)
-        try IProjectVault(target).updateRiskParams(aprBps) {
-            success = true;
-        } catch (bytes memory lowLevelData) {
-            errorData = lowLevelData;
-            // Vault call failed, try PoolManager
-            uint256 poolId = projectPoolId[projectId];
-            if (poolId == 0) {
-                // If poolId is 0, it should have been a Vault or target wasn't set correctly for a pool.
-                // Revert based on the original Vault call failure data, or a generic error.
-                revert(string(abi.encodePacked("Vault call failed and no poolId set: ", string(errorData))));
+        // Determine if we're dealing with a vault or pool manager based on poolId
+        if (poolId == 0) {
+            // It's a Vault - call with direct APR
+            try IProjectVault(target).updateRiskParams(aprBps) {
+                success = true;
+            } catch Error(string memory reason) {
+                revert(string(abi.encodePacked("Vault updateRiskParams failed: ", reason)));
+            } catch (bytes memory lowLevelData) {
+                revert(string(abi.encodePacked("Vault updateRiskParams failed (low level): ", string(lowLevelData))));
             }
+        } else {
+            // It's a PoolManager - call with poolId and projectId parameters
             try ILiquidityPoolManager(target).updateRiskParams(poolId, projectId, aprBps) {
                 success = true;
             } catch Error(string memory reason) {
-                revert(string(abi.encodePacked("PoolManager call failed: ", reason)));
-            } catch (bytes memory lowLevelData2) {
-                revert(string(abi.encodePacked("PoolManager call failed: ", string(lowLevelData2))));
+                revert(string(abi.encodePacked("PoolManager updateRiskParams failed: ", reason)));
+            } catch (bytes memory lowLevelData) {
+                revert(
+                    string(abi.encodePacked("PoolManager updateRiskParams failed (low level): ", string(lowLevelData)))
+                );
             }
         }
 
         if (!success) {
-            // Should be unreachable due to reverts in catch blocks, but defensive check.
+            // This should be unreachable due to reverts in try/catch, but as a precaution
             revert Errors.InvalidOracleData("Failed to call updateRiskParams on target contract");
         }
 
+        // Ignore tenor for now as neither contract implementation uses it post-funding
         emit RiskParamsPushed(projectId, target, msg.sender, aprBps, tenor);
     }
 

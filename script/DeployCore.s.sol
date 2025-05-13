@@ -37,7 +37,6 @@ contract DeployCore is Script {
     address CARBON_TREASURY_ADMIN;
     address KYC_ADMIN;
     address ORACLE_ADMIN;
-    address MILESTONE_AUTHORIZER_ADMIN;
     address PAUSER_ADMIN_FOR_CLONES;
     address ADMIN_FOR_VAULT_CLONES;
     address SLASHING_ADMIN; // For DeveloperDepositEscrow
@@ -61,7 +60,6 @@ contract DeployCore is Script {
         CARBON_TREASURY_ADMIN = vm.envAddress("CARBON_TREASURY_ADMIN");
         KYC_ADMIN = vm.envAddress("KYC_ADMIN");
         ORACLE_ADMIN = vm.envAddress("ORACLE_ADMIN");
-        MILESTONE_AUTHORIZER_ADMIN = vm.envAddress("MILESTONE_AUTHORIZER_ADMIN");
         PAUSER_ADMIN_FOR_CLONES = vm.envAddress("PAUSER_ADMIN_FOR_CLONES");
         ADMIN_FOR_VAULT_CLONES = vm.envAddress("ADMIN_FOR_VAULT_CLONES");
         SLASHING_ADMIN = vm.envAddress("SLASHING_ADMIN");
@@ -69,10 +67,11 @@ contract DeployCore is Script {
         if (USDC_ADDRESS == address(0)) {
             revert("USDC_ADDRESS not set in .env");
         }
-        if (PROTOCOL_TREASURY_ADMIN == address(0) || CARBON_TREASURY_ADMIN == address(0) ||
-            KYC_ADMIN == address(0) || ORACLE_ADMIN == address(0) ||
-            MILESTONE_AUTHORIZER_ADMIN == address(0) || PAUSER_ADMIN_FOR_CLONES == address(0) ||
-            ADMIN_FOR_VAULT_CLONES == address(0) || SLASHING_ADMIN == address(0)) {
+        if (
+            PROTOCOL_TREASURY_ADMIN == address(0) || CARBON_TREASURY_ADMIN == address(0) || KYC_ADMIN == address(0)
+                || ORACLE_ADMIN == address(0) || PAUSER_ADMIN_FOR_CLONES == address(0)
+                || ADMIN_FOR_VAULT_CLONES == address(0) || SLASHING_ADMIN == address(0)
+        ) {
             revert("One or more admin addresses not set in .env");
         }
     }
@@ -87,11 +86,9 @@ contract DeployCore is Script {
         console.log("\n--- Phase 1: Deploying Core Logic & Base Contracts ---");
 
         DeveloperRegistry devRegistryImpl = new DeveloperRegistry();
-        bytes memory devRegistryInitData = abi.encodeWithSelector(
-            DeveloperRegistry.initialize.selector,
-            deployer
-        );
-        developerRegistryProxy = IDeveloperRegistry(address(new ERC1967Proxy(address(devRegistryImpl), devRegistryInitData)));
+        bytes memory devRegistryInitData = abi.encodeWithSelector(DeveloperRegistry.initialize.selector, deployer);
+        developerRegistryProxy =
+            IDeveloperRegistry(address(new ERC1967Proxy(address(devRegistryImpl), devRegistryInitData)));
         console.log("DeveloperRegistry (Proxy) deployed at:", address(developerRegistryProxy));
         console.log("DeveloperRegistry (Impl) deployed at:", address(devRegistryImpl));
 
@@ -123,13 +120,9 @@ contract DeployCore is Script {
         console.log("RepaymentRouter deployed at:", address(repaymentRouterContract));
 
         RiskRateOracleAdapter riskAdapterImpl = new RiskRateOracleAdapter();
-        bytes memory riskAdapterInitData = abi.encodeWithSelector(
-            RiskRateOracleAdapter.initialize.selector,
-            deployer
-        );
-        riskRateOracleAdapterProxy = IRiskRateOracleAdapter(
-            address(new ERC1967Proxy(address(riskAdapterImpl), riskAdapterInitData))
-        );
+        bytes memory riskAdapterInitData = abi.encodeWithSelector(RiskRateOracleAdapter.initialize.selector, deployer);
+        riskRateOracleAdapterProxy =
+            IRiskRateOracleAdapter(address(new ERC1967Proxy(address(riskAdapterImpl), riskAdapterInitData)));
         console.log("RiskRateOracleAdapter (Proxy) deployed at:", address(riskRateOracleAdapterProxy));
         console.log("RiskRateOracleAdapter (Impl) deployed at:", address(riskAdapterImpl));
 
@@ -145,7 +138,8 @@ contract DeployCore is Script {
             address(riskRateOracleAdapterProxy),
             devEscrowImplementationAddress,
             address(repaymentRouterContract),
-            MILESTONE_AUTHORIZER_ADMIN
+            address(developerDepositEscrowContract),
+            PROTOCOL_TREASURY_ADMIN
         );
         liquidityPoolManagerProxy = ILiquidityPoolManager(address(new ERC1967Proxy(address(lpmImpl), lpmInitData)));
         console.log("LiquidityPoolManager (Proxy) deployed at:", address(liquidityPoolManagerProxy));
@@ -159,7 +153,8 @@ contract DeployCore is Script {
             USDC_ADDRESS,
             deployer
         );
-        projectFactoryProxy = ProjectFactory(address(new ERC1967Proxy(address(projectFactoryImpl), projectFactoryInitData)));
+        projectFactoryProxy =
+            ProjectFactory(address(new ERC1967Proxy(address(projectFactoryImpl), projectFactoryInitData)));
         console.log("ProjectFactory (Proxy) deployed at:", address(projectFactoryProxy));
         console.log("ProjectFactory (Impl) deployed at:", address(projectFactoryImpl));
 
@@ -169,9 +164,10 @@ contract DeployCore is Script {
             directProjectVaultImplementationAddress,
             devEscrowImplementationAddress,
             address(repaymentRouterContract),
-            MILESTONE_AUTHORIZER_ADMIN,
             PAUSER_ADMIN_FOR_CLONES,
-            ADMIN_FOR_VAULT_CLONES
+            ADMIN_FOR_VAULT_CLONES,
+            address(riskRateOracleAdapterProxy),
+            address(feeRouterProxy)
         );
         console.log("ProjectFactory addresses configured.");
 
@@ -184,11 +180,21 @@ contract DeployCore is Script {
 
         console.log("Assigning roles on DeveloperRegistry...");
         DeveloperRegistry(address(developerRegistryProxy)).grantRole(Constants.KYC_ADMIN_ROLE, KYC_ADMIN);
-        DeveloperRegistry(address(developerRegistryProxy)).grantRole(Constants.PROJECT_HANDLER_ROLE, address(projectFactoryProxy));
+        DeveloperRegistry(address(developerRegistryProxy)).grantRole(
+            Constants.PROJECT_HANDLER_ROLE, address(projectFactoryProxy)
+        );
+        DeveloperRegistry(address(developerRegistryProxy)).grantRole(
+            Constants.PROJECT_HANDLER_ROLE, address(liquidityPoolManagerProxy)
+        );
         console.log("DeveloperRegistry roles assigned.");
 
         console.log("Assigning roles on DeveloperDepositEscrow...");
+        developerDepositEscrowContract.grantRole(Constants.DEPOSIT_FUNDER_ROLE, address(projectFactoryProxy));
+        developerDepositEscrowContract.grantRole(Constants.DEPOSIT_FUNDER_ROLE, address(liquidityPoolManagerProxy));
+        developerDepositEscrowContract.setRoleAdminExternally(Constants.RELEASER_ROLE, Constants.DEFAULT_ADMIN_ROLE);
+        developerDepositEscrowContract.grantRole(Constants.RELEASER_ROLE, deployer);
         developerDepositEscrowContract.grantRole(Constants.RELEASER_ROLE, address(projectFactoryProxy));
+        developerDepositEscrowContract.grantRole(Constants.RELEASER_ROLE, address(liquidityPoolManagerProxy));
         developerDepositEscrowContract.grantRole(Constants.SLASHER_ROLE, SLASHING_ADMIN);
         console.log("DeveloperDepositEscrow roles assigned.");
 
@@ -198,13 +204,31 @@ contract DeployCore is Script {
         FeeRouter(address(feeRouterProxy)).grantRole(Constants.PROJECT_HANDLER_ROLE, address(liquidityPoolManagerProxy));
         console.log("FeeRouter roles assigned.");
 
+        console.log("Assigning roles on RepaymentRouter...");
+        repaymentRouterContract.grantRole(Constants.PROJECT_HANDLER_ROLE, address(projectFactoryProxy));
+        repaymentRouterContract.grantRole(Constants.PROJECT_HANDLER_ROLE, address(liquidityPoolManagerProxy));
+        console.log("RepaymentRouter roles assigned.");
+
         console.log("Assigning ORACLE_ROLE on RiskRateOracleAdapter to specific oracle admin...");
         RiskRateOracleAdapter(address(riskRateOracleAdapterProxy)).grantRole(Constants.RISK_ORACLE_ROLE, ORACLE_ADMIN);
         console.log("RiskRateOracleAdapter ORACLE_ROLE assigned.");
 
+        console.log("Assigning PROJECT_HANDLER_ROLE on RiskRateOracleAdapter to ProjectFactory and LPM...");
+        RiskRateOracleAdapter(address(riskRateOracleAdapterProxy)).grantRole(
+            Constants.PROJECT_HANDLER_ROLE, address(projectFactoryProxy)
+        );
+        RiskRateOracleAdapter(address(riskRateOracleAdapterProxy)).grantRole(
+            Constants.PROJECT_HANDLER_ROLE, address(liquidityPoolManagerProxy)
+        );
+        console.log("RiskRateOracleAdapter PROJECT_HANDLER_ROLE for target setting assigned.");
+
         console.log("Assigning roles on LiquidityPoolManager...");
-        LiquidityPoolManager(address(liquidityPoolManagerProxy)).grantRole(Constants.PROJECT_HANDLER_ROLE, address(projectFactoryProxy));
-        LiquidityPoolManager(address(liquidityPoolManagerProxy)).grantRole(Constants.RISK_ORACLE_ROLE, address(riskRateOracleAdapterProxy));
+        LiquidityPoolManager(address(liquidityPoolManagerProxy)).grantRole(
+            Constants.PROJECT_HANDLER_ROLE, address(projectFactoryProxy)
+        );
+        LiquidityPoolManager(address(liquidityPoolManagerProxy)).grantRole(
+            Constants.RISK_ORACLE_ROLE, address(riskRateOracleAdapterProxy)
+        );
         console.log("LiquidityPoolManager roles assigned.");
 
         console.log("Configuring PausableGovernor...");

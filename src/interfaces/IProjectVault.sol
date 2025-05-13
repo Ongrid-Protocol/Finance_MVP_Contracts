@@ -21,6 +21,7 @@ interface IProjectVault {
         uint48 loanTenor;
         uint16 initialAprBps;
         address depositEscrowAddress;
+        address riskOracleAdapter;
     }
 
     // --- Events ---
@@ -29,7 +30,6 @@ interface IProjectVault {
     event RepaymentReceived(uint256 projectId, address indexed payer, uint256 principalAmount, uint256 interestAmount);
     event YieldClaimed(address indexed investor, uint256 amountClaimed);
     event PrincipalClaimed(address indexed investor, uint256 amountClaimed);
-    event DrawdownExecuted(uint256 projectId, address indexed developer, uint256 amount);
     event RiskParamsUpdated(uint256 projectId, uint16 newAprBps);
     event LoanClosed(uint256 projectId, uint256 finalPrincipalRepaid, uint256 finalInterestAccrued);
 
@@ -84,16 +84,6 @@ interface IProjectVault {
      * @param newAprBps The new APR in basis points.
      */
     function updateRiskParams(uint16 newAprBps) external;
-
-    /**
-     * @notice Triggers a drawdown notification from the associated DevEscrow.
-     * @dev Only callable by the DEV_ESCROW_ROLE (the associated DevEscrow contract).
-     *      This function acknowledges that funds have been released by the escrow,
-     *      allowing the vault to potentially update its internal state or trigger actions.
-     *      (In the current spec, this might primarily be for event emission and tracking).
-     * @param amount The amount withdrawn by the developer from the DevEscrow.
-     */
-    function triggerDrawdown(uint256 amount) external;
 
     /**
      * @notice Marks the loan as closed when it is fully repaid.

@@ -71,6 +71,5 @@ library Constants {
     bytes32 public constant REPAYMENT_HANDLER_ROLE = keccak256("REPAYMENT_HANDLER_ROLE"); // DirectProjectVault, LiquidityPoolManager
     bytes32 public constant DEV_ESCROW_ROLE = keccak256("DEV_ESCROW_ROLE"); // DirectProjectVault (Authorised to call triggerDrawdown)
     bytes32 public constant RISK_ORACLE_ROLE = keccak256("RISK_ORACLE_ROLE"); // DirectProjectVault, LiquidityPoolManager, RiskRateOracleAdapter
-    bytes32 public constant MILESTONE_AUTHORIZER_ROLE = keccak256("MILESTONE_AUTHORIZER_ROLE"); // DevEscrow
     bytes32 public constant REPAYMENT_ROUTER_ROLE = keccak256("REPAYMENT_ROUTER_ROLE"); // FeeRouter
 }

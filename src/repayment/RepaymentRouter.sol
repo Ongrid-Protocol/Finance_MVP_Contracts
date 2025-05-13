@@ -98,14 +98,14 @@ contract RepaymentRouter is AccessControlEnumerable, Pausable, ReentrancyGuard {
 
     /**
      * @notice Sets or updates the funding source contract (Vault/Pool) for a given project ID.
-     * @dev Requires caller to have `DEFAULT_ADMIN_ROLE`.
+     * @dev Requires caller to have `PROJECT_HANDLER_ROLE`.
      * @param projectId The unique identifier of the project.
      * @param fundingSource The address of the `DirectProjectVault` or `LiquidityPoolManager`.
      * @param poolId The ID of the pool if `fundingSource` is a PoolManager, otherwise 0.
      */
     function setFundingSource(uint256 projectId, address fundingSource, uint256 poolId)
         external
-        onlyRole(Constants.DEFAULT_ADMIN_ROLE)
+        onlyRole(Constants.PROJECT_HANDLER_ROLE)
     {
         if (fundingSource == address(0)) revert Errors.ZeroAddressNotAllowed();
         // Optional: Check if projectId exists? Depends on workflow.
@@ -127,80 +127,95 @@ contract RepaymentRouter is AccessControlEnumerable, Pausable, ReentrancyGuard {
      * @notice Processes a repayment from a developer for a specific project.
      * @dev 1. Pulls the specified `amount` of USDC from `msg.sender` (developer).
      *      2. Calculates the transaction fee via `feeRouter`.
-     *      3. Transfers the fee amount to the `feeRouter`.
-     *      4. Calls `feeRouter.routeFees()` to distribute the fee.
-     *      5. Determines the principal/interest split of the remaining amount (net repayment).
+     *      3. Calculates the management fee based on outstanding principal.
+     *      4. Sum the transaction fee and management fee to get total fees.
+     *      5. Calls `feeRouter.routeFees()` to distribute the total fees.
+     *      6. Determines the principal/interest split of the remaining amount (net repayment).
      *         - This requires querying the `fundingSource` (Vault/Pool) for outstanding debt details.
-     *      6. Calls `handleRepayment()` on the `fundingSource` with the principal/interest split.
-     *      7. Updates the `lastMgmtFeeTimestamp` in the `feeRouter`.
+     *      7. Calls `handleRepayment()` on the `fundingSource` with the principal/interest split.
+     *      8. Updates the `lastMgmtFeeTimestamp` in the `feeRouter`.
      * @param projectId The unique identifier of the project being repaid.
      * @param amount The total amount the developer intends to repay in this transaction.
      */
     function repay(uint256 projectId, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert Errors.AmountCannotBeZero();
-        address fundingSource = projectFundingSource[projectId];
-        if (fundingSource == address(0)) revert Errors.InvalidValue("Funding source not set for project");
+        address fundingSourceAddress = projectFundingSource[projectId];
+        if (fundingSourceAddress == address(0)) revert Errors.InvalidValue("Funding source not set for project");
 
+        IFundingSource fundingSource = IFundingSource(fundingSourceAddress);
         address payer = msg.sender; // Assume developer calls this directly
 
         // --- 1. Pull Funds ---
         usdcToken.safeTransferFrom(payer, address(this), amount);
 
-        // --- 2. Calculate Transaction Fee ---
+        // --- Fee Calculation ---
         uint256 txFee = feeRouter.calculateTransactionFee(amount);
 
-        uint256 netRepaymentAmount = amount - txFee;
-        if (netRepaymentAmount == 0 && txFee > 0) {
-            // Edge case: Repayment only covers fee? Let it proceed but principal/interest will be 0.
-        } else if (txFee >= amount) {
-            revert Errors.InvalidAmount(amount); // Amount must be greater than fee
+        // Calculate Management Fee
+        uint256 outstandingPrincipal = fundingSource.getOutstandingPrincipal(projectPoolId[projectId], projectId);
+        uint256 mgmtFee = 0;
+        if (outstandingPrincipal > 0) {
+            // Only calculate mgmt fee if there's outstanding principal
+            mgmtFee = feeRouter.calculateManagementFee(projectId, outstandingPrincipal);
         }
 
-        // --- 3. Transfer Fee to FeeRouter ---
-        usdcToken.safeTransfer(address(feeRouter), txFee);
+        uint256 totalFeeCollected = txFee + mgmtFee;
 
-        // --- 4. Trigger Fee Routing ---
-        feeRouter.routeFees(txFee);
+        if (totalFeeCollected >= amount) {
+            // If fees are greater than or equal to repayment, all of it goes to fees.
+            // Transfer entire amount to fee router, net repayment will be 0.
+            usdcToken.safeTransfer(address(feeRouter), amount);
+            feeRouter.routeFees(amount);
 
-        // --- 5. Determine Principal/Interest Split ---
+            // Always update management fee timestamp to keep timestamps in sync
+            feeRouter.updateLastMgmtFeeTimestamp(projectId);
+
+            emit RepaymentRouted(projectId, payer, amount, amount, 0, 0, fundingSourceAddress);
+            return; // Exit early
+        }
+
+        uint256 netRepaymentAmount = amount - totalFeeCollected;
+
+        // --- Transfer Total Fee to FeeRouter ---
+        usdcToken.safeTransfer(address(feeRouter), totalFeeCollected);
+
+        // --- Trigger Fee Routing in FeeRouter ---
+        feeRouter.routeFees(totalFeeCollected);
+
+        // --- Update Management Fee Timestamp in FeeRouter ---
+        // Always update the mgmt fee timestamp, even if no management fee was applicable
+        // This ensures consistent timestamp tracking across all repayments
+        feeRouter.updateLastMgmtFeeTimestamp(projectId);
+
+        // --- Determine Principal/Interest Split & Call handleRepayment on Funding Source ---
         uint256 principalToRepay;
         uint256 interestToRepay;
+        uint256 poolIdForCall = projectPoolId[projectId]; // Use stored poolId
 
-        // --- 6. Call handleRepayment on Funding Source ---
-        uint256 poolId = projectPoolId[projectId];
-        bool isPool = poolId != 0;
-
-        // Call target and get split back
-        try IFundingSource(fundingSource).handleRepayment(isPool ? poolId : 0, projectId, netRepaymentAmount) returns (
+        try fundingSource.handleRepayment(poolIdForCall, projectId, netRepaymentAmount) returns (
             uint256 principalPaid, uint256 interestPaid
         ) {
             principalToRepay = principalPaid;
             interestToRepay = interestPaid;
 
-            // Sanity check: returned split should match net amount
             if (principalPaid + interestPaid > netRepaymentAmount) {
-                // This indicates an issue in the target contract's calculation
                 revert Errors.InvalidValue("Target contract repayment split exceeds net amount");
             }
-            // Allow principalPaid + interestPaid < netRepaymentAmount if target handles rounding/dust?
         } catch Error(string memory reason) {
             revert(string(abi.encodePacked("Target handleRepayment failed: ", reason)));
         } catch (bytes memory lowLevelData) {
-            revert(string(abi.encodePacked("Target handleRepayment failed: ", string(lowLevelData))));
+            revert(string(abi.encodePacked("Target handleRepayment failed (low level): ", string(lowLevelData))));
         }
-
-        // --- 7. Update Fee Router Timestamp ---
-        feeRouter.updateLastMgmtFeeTimestamp(projectId);
 
         // --- Emit Event ---
         emit RepaymentRouted(
             projectId,
             payer,
             amount, // Gross amount
-            txFee,
+            totalFeeCollected,
             principalToRepay,
             interestToRepay,
-            fundingSource
+            fundingSourceAddress
         );
     }
 
@@ -245,4 +260,6 @@ interface IFundingSource {
     function handleRepayment(uint256 poolId, uint256 projectId, uint256 netAmount)
         external
         returns (uint256 principalPaid, uint256 interestPaid);
+
+    function getOutstandingPrincipal(uint256 poolId, uint256 projectId) external view returns (uint256);
 }

@@ -51,7 +51,8 @@ interface ILiquidityPoolManager {
         address indexed developer,
         address devEscrow,
         uint256 amountFunded,
-        uint16 aprBps
+        uint16 aprBps,
+        address liquidityPoolManagerAddress
     );
     event PoolRepaymentReceived(
         uint256 indexed poolId,

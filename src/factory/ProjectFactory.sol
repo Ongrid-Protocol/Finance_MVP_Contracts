@@ -18,6 +18,11 @@ import {IDeveloperDepositEscrow} from "../interfaces/IDeveloperDepositEscrow.sol
 import {ILiquidityPoolManager} from "../interfaces/ILiquidityPoolManager.sol";
 import {IProjectVault} from "../interfaces/IProjectVault.sol";
 import {IDevEscrow} from "../interfaces/IDevEscrow.sol";
+import {IRiskRateOracleAdapter} from "../interfaces/IRiskRateOracleAdapter.sol";
+import {IFeeRouter} from "../interfaces/IFeeRouter.sol";
+import {IRepaymentRouter} from "../interfaces/IRepaymentRouter.sol";
+
+import "forge-std/console.sol";
 // No IFeeRouter needed directly, but its roles are relevant
 // Need DevEscrow implementation for init call signature check
 // import {DevEscrow} from "../escrow/DevEscrow.sol";
@@ -41,6 +46,19 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         string metadataCID; // IPFS CID or similar for project details
     }
 
+    /**
+     * @dev Project context for high-value projects to reduce stack usage
+     */
+    struct HighValueProjectContext {
+        address developer;
+        uint256 projectId;
+        uint256 financedAmount;
+        uint256 depositAmount;
+        uint48 requestedTenor;
+        address vaultAddress;
+        address devEscrowAddress;
+    }
+
     // --- State Variables ---
 
     // Immutable Dependencies (set in initializer)
@@ -50,12 +68,13 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
 
     // Settable Dependencies & Configuration (set via setAddresses)
     ILiquidityPoolManager public liquidityPoolManager;
+    IFeeRouter public feeRouter;
     address public vaultImplementation; // Implementation for DirectProjectVault
     address public devEscrowImplementation; // Implementation for DevEscrow
     address public repaymentRouterAddress; // Address of the RepaymentRouter contract
-    address public milestoneAuthorizerAddress; // Address authorized for DevEscrow milestones
     address public pauserAddress; // Address granted pauser role on deployed DevEscrows
     address public adminAddress; // Address granted admin role on deployed Vaults
+    address public riskOracleAdapterAddress; // Address of the RiskRateOracleAdapter contract
 
     // Counter
     uint256 public projectCounter;
@@ -97,9 +116,10 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         address vaultImpl,
         address escrowImpl,
         address repaymentRouter,
-        address milestoneAuth,
         address pauser,
-        address admin
+        address admin,
+        address riskOracleAdapter,
+        address feeRouter
     );
 
     // --- Initializer ---
@@ -146,24 +166,26 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
      * @param _vaultImpl Implementation address for DirectProjectVault clones.
      * @param _escrowImpl Implementation address for DevEscrow clones.
      * @param _repaymentRouter Address of the RepaymentRouter contract.
-     * @param _milestoneAuth Address authorized to approve DevEscrow milestones.
      * @param _pauser Address authorized to pause deployed DevEscrows.
      * @param _admin Address to be set as admin for deployed DirectProjectVaults.
+     * @param _riskOracleAdapter Address of the RiskRateOracleAdapter contract.
+     * @param _feeRouter Address of the FeeRouter contract.
      */
     function setAddresses(
         address _poolManager,
         address _vaultImpl,
         address _escrowImpl,
         address _repaymentRouter,
-        address _milestoneAuth,
         address _pauser,
-        address _admin
+        address _admin,
+        address _riskOracleAdapter,
+        address _feeRouter
     ) external onlyRole(Constants.DEFAULT_ADMIN_ROLE) {
         // Add zero address checks for mandatory addresses
         if (
             _poolManager == address(0) || _vaultImpl == address(0) || _escrowImpl == address(0)
-                || _repaymentRouter == address(0) || _milestoneAuth == address(0) || _pauser == address(0)
-                || _admin == address(0)
+                || _repaymentRouter == address(0) || _pauser == address(0) || _admin == address(0)
+                || _feeRouter == address(0)
         ) {
             revert Errors.ZeroAddressNotAllowed();
         }
@@ -172,11 +194,14 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         vaultImplementation = _vaultImpl;
         devEscrowImplementation = _escrowImpl;
         repaymentRouterAddress = _repaymentRouter;
-        milestoneAuthorizerAddress = _milestoneAuth;
         pauserAddress = _pauser;
         adminAddress = _admin;
+        riskOracleAdapterAddress = _riskOracleAdapter; // Store the risk oracle adapter address
+        feeRouter = IFeeRouter(_feeRouter); // Set feeRouter
 
-        emit AddressesSet(_poolManager, _vaultImpl, _escrowImpl, _repaymentRouter, _milestoneAuth, _pauser, _admin);
+        emit AddressesSet(
+            _poolManager, _vaultImpl, _escrowImpl, _repaymentRouter, _pauser, _admin, _riskOracleAdapter, _feeRouter
+        );
     }
 
     // --- Project Creation ---
@@ -285,12 +310,11 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
 
         (bool success,) = escrowAddress.call(
             abi.encodeWithSignature(
-                "initialize(address,address,address,uint256,address,address)",
+                "initialize(address,address,address,uint256,address)",
                 address(usdcToken),
                 _developer,
                 _fundingSource,
                 _loanAmount,
-                milestoneAuthorizerAddress,
                 pauserAddress
             )
         );
@@ -300,40 +324,92 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
     }
 
     /**
-     * @dev Helper to deploy and initialize Vault
+     * @dev Main function split into smaller functions to avoid "stack too deep" errors
      * @param _developer The developer's address.
-     * @param _escrowAddress The address of the deployed DevEscrow clone.
      * @param _projectId The project ID.
-     * @param _financedAmount The amount to be financed (80% of total).
-     * @param _developerDeposit The developer's deposit amount (20% of total).
-     * @param _requestedTenor The tenor of the project.
-     * @param _depositEscrowAddress The address of the deployed DevEscrow clone for the deposit.
-     * @return vaultAddress The address of the deployed DirectProjectVault clone.
+     * @param _params The project parameters.
+     * @param _depositAmount The deposit amount
+     * @param _financedAmount The financed amount
      */
-    function _deployAndInitVault(
+    function _deployAndInitializeHighValueProject(
         address _developer,
-        address _escrowAddress, // Must already be deployed
         uint256 _projectId,
-        uint256 _financedAmount,
-        uint256 _developerDeposit,
-        uint48 _requestedTenor,
-        address _depositEscrowAddress
-    ) internal returns (address) {
-        address vaultAddress = Clones.clone(vaultImplementation);
+        ProjectParams calldata _params,
+        uint256 _depositAmount,
+        uint256 _financedAmount
+    ) internal {
+        _checkDependenciesInitialized();
+
+        // Create project context to reduce stack variables
+        HighValueProjectContext memory context = HighValueProjectContext({
+            developer: _developer,
+            projectId: _projectId,
+            financedAmount: _financedAmount,
+            depositAmount: _depositAmount,
+            requestedTenor: _params.requestedTenor,
+            vaultAddress: address(0),
+            devEscrowAddress: address(0)
+        });
+
+        // Step 1: Deploy vault and escrow
+        (context.vaultAddress, context.devEscrowAddress) = _deployVaultAndEscrow(context);
+
+        // Step 2: Setup vault permissions
+        _setupVaultPermissions(context);
+
+        // Step 3: Configure repayment settings
+        _configureRepaymentSettings(context, _params.loanAmountRequested);
+
+        // Emit creation event
+        emit ProjectCreated(
+            context.projectId, context.developer, context.vaultAddress, context.devEscrowAddress, context.financedAmount
+        );
+    }
+
+    /**
+     * @dev Validates that all required dependencies are initialized
+     */
+    function _checkDependenciesInitialized() internal view {
+        if (
+            vaultImplementation == address(0) || devEscrowImplementation == address(0)
+                || repaymentRouterAddress == address(0) || pauserAddress == address(0) || adminAddress == address(0)
+                || address(feeRouter) == address(0)
+        ) {
+            revert Errors.NotInitialized();
+        }
+    }
+
+    /**
+     * @dev Deploys and initializes vault and escrow contracts
+     * @param context The project context
+     * @return vaultAddress The deployed vault address
+     * @return devEscrowAddress The deployed escrow address
+     */
+    function _deployVaultAndEscrow(HighValueProjectContext memory context)
+        internal
+        returns (address vaultAddress, address devEscrowAddress)
+    {
+        // Clone the vault
+        vaultAddress = Clones.clone(vaultImplementation);
         if (vaultAddress == address(0)) revert Errors.InvalidState("Vault clone failed");
 
+        // Deploy escrow with vault as funding source
+        devEscrowAddress = _deployDevEscrow(context.developer, vaultAddress, context.financedAmount);
+
+        // Initialize the vault
         IProjectVault.InitParams memory initParams = IProjectVault.InitParams({
             admin: adminAddress,
             usdcToken: address(usdcToken),
-            developer: _developer,
-            devEscrow: _escrowAddress,
+            developer: context.developer,
+            devEscrow: devEscrowAddress,
             repaymentRouter: repaymentRouterAddress,
-            projectId: _projectId,
-            financedAmount: _financedAmount,
-            developerDeposit: _developerDeposit,
-            loanTenor: _requestedTenor,
+            projectId: context.projectId,
+            financedAmount: context.financedAmount,
+            developerDeposit: context.depositAmount,
+            loanTenor: context.requestedTenor,
             initialAprBps: 0, // Initial APR set to 0, can be updated by oracle
-            depositEscrowAddress: _depositEscrowAddress
+            depositEscrowAddress: address(depositEscrow),
+            riskOracleAdapter: riskOracleAdapterAddress
         });
 
         try IProjectVault(vaultAddress).initialize(initParams) {}
@@ -343,53 +419,108 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
             revert Errors.InvalidState("Vault init failed");
         }
 
-        return vaultAddress;
+        return (vaultAddress, devEscrowAddress);
     }
 
     /**
-     * @dev Main function - maintains original sequence
-     * @param _developer The developer's address.
-     * @param _projectId The project ID.
-     * @param _params The project parameters.
+     * @dev Sets up vault permissions and registers with oracle
+     * @param context The project context
      */
-    function _deployAndInitializeHighValueProject(
-        address _developer,
-        uint256 _projectId,
-        ProjectParams calldata _params,
-        uint256 _depositAmount,
-        uint256 _financedAmount
-    ) internal {
-        if (
-            vaultImplementation == address(0) || devEscrowImplementation == address(0)
-                || repaymentRouterAddress == address(0) || milestoneAuthorizerAddress == address(0)
-                || pauserAddress == address(0) || adminAddress == address(0)
-        ) {
-            revert Errors.NotInitialized();
+    function _setupVaultPermissions(HighValueProjectContext memory context) internal {
+        // Grant RELEASER_ROLE to vault on DeveloperDepositEscrow
+        bool releaseRoleSuccess = false;
+        try depositEscrow.grantRole(Constants.RELEASER_ROLE, context.vaultAddress) {
+            console.log("RELEASER_ROLE granted to vault:", context.vaultAddress);
+            releaseRoleSuccess = true;
+        } catch Error(string memory reason) {
+            console.log("Failed to grant RELEASER_ROLE to vault:", reason);
         }
 
-        // 1. First deploy escrow with this contract as temporary funding source
-        address devEscrowAddress = _deployDevEscrow(
-            _developer,
-            address(this), // Temporary funding source until vault is deployed
-            _financedAmount
-        );
+        if (!releaseRoleSuccess) {
+            revert Errors.InvalidState("Failed to grant RELEASER_ROLE to vault");
+        }
 
-        // 2. Then deploy vault with the escrow address
-        address vaultAddress = _deployAndInitVault(
-            _developer,
-            devEscrowAddress,
-            _projectId,
-            _financedAmount,
-            _depositAmount,
-            _params.requestedTenor,
-            address(depositEscrow) // Pass deposit escrow address
-        );
+        // Register vault with RiskRateOracleAdapter if available
+        if (riskOracleAdapterAddress != address(0)) {
+            try IRiskRateOracleAdapter(riskOracleAdapterAddress).setTargetContract(
+                context.projectId, context.vaultAddress, 0
+            ) {
+                console.log("Vault registered with RiskRateOracleAdapter");
+            } catch Error(string memory reason) {
+                console.log("Failed to register vault with RiskRateOracleAdapter:", reason);
+                // Not a critical error
+            }
+        }
+    }
 
-        // 3. Update escrow's funding source to point to vault (optional step)
-        // This would require an additional method in the DevEscrow contract
-        // that's not shown in the provided code, so we'll skip it
+    /**
+     * @dev Configures repayment settings in FeeRouter and RepaymentRouter
+     * @param context The project context
+     * @param totalLoanAmount The total loan amount (100%)
+     */
+    function _configureRepaymentSettings(HighValueProjectContext memory context, uint256 totalLoanAmount) internal {
+        // Set project details in FeeRouter
+        bool feeRouterDetailsSuccess = false;
+        try feeRouter.setProjectDetails(context.projectId, totalLoanAmount, context.developer, uint64(block.timestamp))
+        {
+            console.log("Project details set in FeeRouter for projectId:", context.projectId);
+            feeRouterDetailsSuccess = true;
+        } catch Error(string memory reason) {
+            console.log("Failed to set project details in FeeRouter:", reason);
+        }
 
-        emit ProjectCreated(_projectId, _developer, vaultAddress, devEscrowAddress, _financedAmount);
+        if (!feeRouterDetailsSuccess) {
+            revert Errors.InvalidState("Failed to set project details in FeeRouter");
+        }
+
+        // Set repayment schedule
+        _setRepaymentSchedule(context);
+
+        // Set funding source in RepaymentRouter
+        _setFundingSource(context);
+    }
+
+    /**
+     * @dev Sets repayment schedule in FeeRouter
+     * @param context The project context
+     */
+    function _setRepaymentSchedule(HighValueProjectContext memory context) internal {
+        uint256 numberOfWeeks = context.requestedTenor / 7;
+        uint256 weeklyPaymentAmount = 0;
+
+        if (numberOfWeeks > 0) {
+            weeklyPaymentAmount = context.financedAmount / numberOfWeeks;
+        }
+
+        if (weeklyPaymentAmount > 0) {
+            try feeRouter.setRepaymentSchedule(context.projectId, 1, weeklyPaymentAmount) {
+                console.log("Repayment schedule set in FeeRouter for projectId:", context.projectId);
+            } catch Error(string memory reason) {
+                console.log("Failed to set repayment schedule in FeeRouter:", reason);
+                // Not a critical error
+            }
+        } else {
+            console.log("Skipping repayment schedule due to zero payment amount for projectId:", context.projectId);
+        }
+    }
+
+    /**
+     * @dev Sets funding source in RepaymentRouter
+     * @param context The project context
+     */
+    function _setFundingSource(HighValueProjectContext memory context) internal {
+        bool repaymentRouterSuccess = false;
+
+        try IRepaymentRouter(repaymentRouterAddress).setFundingSource(context.projectId, context.vaultAddress, 0) {
+            console.log("Funding source set in RepaymentRouter for projectId:", context.projectId);
+            repaymentRouterSuccess = true;
+        } catch Error(string memory reason) {
+            console.log("Failed to set funding source in RepaymentRouter:", reason);
+        }
+
+        if (!repaymentRouterSuccess) {
+            revert Errors.InvalidState("Failed to set funding source in RepaymentRouter");
+        }
     }
 
     // --- Pausable Functions ---

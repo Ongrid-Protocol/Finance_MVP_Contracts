@@ -18,9 +18,12 @@ import {IDevEscrow} from "../interfaces/IDevEscrow.sol";
 import {IFeeRouter} from "../interfaces/IFeeRouter.sol"; // Needed to set project details for fees
 import {IDeveloperRegistry} from "../interfaces/IDeveloperRegistry.sol"; // Needed to set project details for fees
 import {IRiskRateOracleAdapter} from "../interfaces/IRiskRateOracleAdapter.sol"; // Interface needed if calling oracle
+import {IRepaymentRouter} from "../interfaces/IRepaymentRouter.sol"; // Added for repayment router interface
+import {IDeveloperDepositEscrow} from "../interfaces/IDeveloperDepositEscrow.sol"; // Added for deposit escrow interface
 
 // Forward declaration or import of DevEscrow if needed for deployment arguments
 import {DevEscrow} from "../escrow/DevEscrow.sol";
+import "forge-std/console.sol"; // Added console.sol import
 
 /**
  * @title LiquidityPoolManager
@@ -47,7 +50,8 @@ contract LiquidityPoolManager is
     IRiskRateOracleAdapter public riskOracleAdapter; // To fetch APR for loans
     address public devEscrowImplementation; // Implementation address for cloning DevEscrow
     address public repaymentRouter; // Needed for handleRepayment role check
-    address public milestoneAuthorizer; // Single authorizer for all pool-funded escrows
+    IDeveloperDepositEscrow public depositEscrow; // Added depositEscrow state variable
+    address public protocolTreasuryAdmin; // Added a state variable for the protocol treasury admin
 
     /**
      * @dev Information about each liquidity pool.
@@ -99,7 +103,8 @@ contract LiquidityPoolManager is
      * @param _riskRateOracleAdapter Address of the RiskRateOracleAdapter contract.
      * @param _devEscrowImplementation Address of the DevEscrow implementation contract.
      * @param _repaymentRouter Address of the RepaymentRouter contract.
-     * @param _milestoneAuthorizer Address authorized to approve milestones for pool-funded escrows.
+     * @param _depositEscrow Address of the DepositEscrow contract.
+     * @param _protocolTreasuryAdmin Address of the protocol treasury admin.
      */
     function initialize(
         address _admin,
@@ -109,13 +114,14 @@ contract LiquidityPoolManager is
         address _riskRateOracleAdapter,
         address _devEscrowImplementation,
         address _repaymentRouter,
-        address _milestoneAuthorizer
+        address _depositEscrow,
+        address _protocolTreasuryAdmin
     ) public initializer {
         if (
             _admin == address(0) || _usdcToken == address(0) || _feeRouter == address(0)
                 || _developerRegistry == address(0) || _riskRateOracleAdapter == address(0)
-                || _devEscrowImplementation == address(0) || _repaymentRouter == address(0)
-                || _milestoneAuthorizer == address(0)
+                || _devEscrowImplementation == address(0) || _repaymentRouter == address(0) || _depositEscrow == address(0)
+                || _protocolTreasuryAdmin == address(0)
         ) {
             revert Errors.ZeroAddressNotAllowed();
         }
@@ -126,7 +132,8 @@ contract LiquidityPoolManager is
         riskOracleAdapter = IRiskRateOracleAdapter(_riskRateOracleAdapter);
         devEscrowImplementation = _devEscrowImplementation;
         repaymentRouter = _repaymentRouter; // Store for role check
-        milestoneAuthorizer = _milestoneAuthorizer;
+        depositEscrow = IDeveloperDepositEscrow(_depositEscrow); // Set depositEscrow
+        protocolTreasuryAdmin = _protocolTreasuryAdmin; // Set protocol treasury admin
 
         // Grant roles
         _grantRole(Constants.DEFAULT_ADMIN_ROLE, _admin);
@@ -267,22 +274,38 @@ contract LiquidityPoolManager is
         context.totalCost = params.totalProjectCost; // The total project cost (100%)
         context.requestedTenor = params.requestedTenor;
 
-        // Get risk level
+        // Get risk level from the oracle
+        // Risk levels: 1=low risk (lowest rate), 2=medium risk (moderate rate), 3=high risk (highest rate)
         try riskOracleAdapter.getProjectRiskLevel(projectId) returns (uint16 level) {
-            context.riskLevel = level;
-        } catch {
-            context.riskLevel = 2; // Default to medium risk
+            if (level >= 1 && level <= 3) {
+                context.riskLevel = level;
+                console.log("Retrieved risk level for project:", projectId, "Risk Level:", level);
+            } else {
+                // If we get an invalid risk level, default to medium risk (2)
+                context.riskLevel = 2;
+                console.log("Retrieved invalid risk level for project:", projectId, "Defaulting to medium risk (2)");
+            }
+        } catch Error(string memory reason) {
+            // Default to medium risk if the oracle call fails
+            context.riskLevel = 2;
+            console.log("Failed to get risk level for project:", projectId, "Reason:", reason);
+            console.log("Defaulting to medium risk (2) - affects APR calculation and pool matching");
+        } catch (bytes memory) {
+            // Default to medium risk if the oracle call fails with a low-level error
+            context.riskLevel = 2;
+            console.log("Failed to get risk level for project with low-level error:", projectId);
+            console.log("Defaulting to medium risk (2) - affects APR calculation and pool matching");
         }
 
-        // Find matching pool
+        // Find matching pool - uses risk level to match with appropriate pool
         if (!_findBestMatchingPool(contextId, context.riskLevel, context.loanAmount)) {
-            emit PoolProjectFunded(0, projectId, developer, address(0), 0, 0);
+            emit PoolProjectFunded(0, projectId, developer, address(0), 0, 0, address(this));
             return (false, 0);
         }
 
         // Deploy escrow
         if (!_deployAndInitializeEscrow(contextId)) {
-            emit PoolProjectFunded(0, projectId, developer, address(0), 0, 0);
+            emit PoolProjectFunded(0, projectId, developer, address(0), 0, 0, address(this));
             return (false, 0);
         }
 
@@ -311,6 +334,17 @@ contract LiquidityPoolManager is
         // Clean up the context
         _cleanupContext(contextId);
 
+        // If funding successful, release deposit to developer
+        if (result) {
+            try depositEscrow.transferDepositToProject(projectId) {
+                // Deposit successfully transferred
+                console.log("Developer deposit transferred for project:", projectId);
+            } catch Error(string memory reason) {
+                console.log("Failed to transfer developer deposit:", reason);
+                // Continue execution - don't revert the whole transaction
+            }
+        }
+
         // Emit event - note we're only emitting the financed amount
         emit PoolProjectFunded(
             context.poolId,
@@ -318,7 +352,8 @@ contract LiquidityPoolManager is
             context.developer,
             context.escrowAddress,
             context.loanAmount,
-            context.aprBps
+            context.aprBps,
+            address(this) // Emit LPM address as the target for Oracle
         );
 
         return (result, resultPoolId);
@@ -442,6 +477,16 @@ contract LiquidityPoolManager is
         return super.supportsInterface(interfaceId);
     }
 
+    // --- Implementation for IFundingSource (called by RepaymentRouter) ---
+    function getOutstandingPrincipal(uint256 poolId, uint256 projectId) external view returns (uint256) {
+        LoanRecord storage loan = poolLoans[poolId][projectId];
+        if (!loan.exists) {
+            // Or revert: Errors.InvalidValue("Loan not found");
+            return 0;
+        }
+        return loan.principal - loan.principalRepaid;
+    }
+
     // Add function to calculate payment amount
     function calculateWeeklyPayment(uint256 loanAmount, uint16 aprBps, uint48 tenor) internal pure returns (uint256) {
         // Simple calculation for weekly payment (principal + interest)
@@ -542,12 +587,11 @@ contract LiquidityPoolManager is
         bool successEscrow;
         (successEscrow,) = escrowAddress.call(
             abi.encodeWithSignature(
-                "initialize(address,address,address,uint256,address,address)",
+                "initialize(address,address,address,uint256,address)",
                 address(usdcToken),
                 context.developer,
                 address(this),
                 context.loanAmount,
-                address(0),
                 address(this)
             )
         );
@@ -578,12 +622,26 @@ contract LiquidityPoolManager is
         ProjectFundingContext storage context = fundingContexts[contextId];
 
         // Notify escrow of total funding (including deposit)
-        try IDevEscrow(context.escrowAddress).notifyFundingComplete(context.totalCost) {} catch {}
+        try IDevEscrow(context.escrowAddress).notifyFundingComplete(context.totalCost) {}
+        catch (bytes memory reason) {
+            console.log("DevEscrow notifyFundingComplete failed:", string(reason));
+        }
 
         // Set project details in FeeRouter with total cost for proper fee calculation
         try feeRouter.setProjectDetails(
             context.projectId, context.totalCost, context.developer, uint64(block.timestamp)
-        ) {} catch {}
+        ) {
+            console.log("FeeRouter.setProjectDetails called for projectId:", context.projectId);
+        } catch Error(string memory reason) {
+            console.log("FeeRouter.setProjectDetails failed:", reason);
+        }
+
+        // Increment developer funded counter
+        try developerRegistry.incrementFundedCounter(context.developer) {
+            console.log("DeveloperRegistry.incrementFundedCounter called for developer:", context.developer);
+        } catch Error(string memory reason) {
+            console.log("DeveloperRegistry.incrementFundedCounter failed:", reason);
+        }
     }
 
     // Setup repayment schedule and oracle target
@@ -592,14 +650,100 @@ contract LiquidityPoolManager is
 
         // Calculate and set repayment schedule
         uint256 weeklyPayment = calculateWeeklyPayment(context.loanAmount, context.aprBps, context.requestedTenor);
-        try feeRouter.setRepaymentSchedule(context.projectId, 1, weeklyPayment) {} catch {}
+        if (weeklyPayment > 0) {
+            try feeRouter.setRepaymentSchedule(context.projectId, 1, weeklyPayment) {
+                // 1 for weekly
+                console.log("FeeRouter.setRepaymentSchedule called for projectId:", context.projectId);
+            } catch Error(string memory reason) {
+                console.log("FeeRouter.setRepaymentSchedule failed:", reason);
+            }
+        } else {
+            console.log("Skipped FeeRouter.setRepaymentSchedule due to zero payment for projectId:", context.projectId);
+        }
 
-        // Set oracle target
-        try riskOracleAdapter.setTargetContract(context.projectId, address(this), context.poolId) {} catch {}
+        // Set funding source in RepaymentRouter
+        // Note: repaymentRouter is an address here, needs to be cast to IRepaymentRouter
+        try IRepaymentRouter(repaymentRouter).setFundingSource(context.projectId, address(this), context.poolId) {
+            console.log("RepaymentRouter.setFundingSource called for projectId:", context.projectId);
+        } catch Error(string memory reason) {
+            console.log("RepaymentRouter.setFundingSource failed:", reason);
+        }
+
+        // Set target contract in RiskRateOracleAdapter
+        try riskOracleAdapter.setTargetContract(context.projectId, address(this), context.poolId) {
+            console.log("RiskRateOracleAdapter.setTargetContract called for projectId:", context.projectId);
+        } catch Error(string memory reason) {
+            console.log("RiskRateOracleAdapter.setTargetContract failed:", reason);
+        }
     }
 
     // Add this function to clean up contexts after use
     function _cleanupContext(uint256 contextId) internal {
         delete fundingContexts[contextId];
     }
+
+    /**
+     * @notice Marks a loan as defaulted and handles the accounting changes
+     * @dev Can only be called by an admin. Updates pool accounting to write off the loan.
+     * @param poolId The ID of the pool containing the defaulted loan
+     * @param projectId The ID of the defaulted project
+     * @param writeOffAmount The amount to write off (defaults to remaining principal if 0)
+     * @param slashDeposit Whether to also slash the developer's deposit
+     */
+    function handleLoanDefault(uint256 poolId, uint256 projectId, uint256 writeOffAmount, bool slashDeposit)
+        external
+        onlyRole(Constants.DEFAULT_ADMIN_ROLE)
+        whenNotPaused
+    {
+        PoolInfo storage pool = pools[poolId];
+        if (!pool.exists) revert Errors.PoolDoesNotExist(poolId);
+
+        LoanRecord storage loan = poolLoans[poolId][projectId];
+        if (!loan.exists) revert Errors.InvalidValue("Loan not found");
+        if (!loan.isActive) revert Errors.InvalidValue("Loan is already closed");
+
+        // Calculate outstanding principal
+        uint256 outstandingPrincipal = loan.principal - loan.principalRepaid;
+        if (outstandingPrincipal == 0) revert Errors.InvalidValue("No outstanding principal to default on");
+
+        // Determine write-off amount
+        uint256 actualWriteOffAmount = writeOffAmount == 0 ? outstandingPrincipal : writeOffAmount;
+        if (actualWriteOffAmount > outstandingPrincipal) {
+            actualWriteOffAmount = outstandingPrincipal;
+        }
+
+        // Update loan record
+        loan.isActive = false;
+
+        // Update pool assets to reflect the loss
+        if (pool.totalAssets >= actualWriteOffAmount) {
+            pool.totalAssets -= actualWriteOffAmount;
+        } else {
+            // Edge case: if total assets is less than the write-off amount (shouldn't happen)
+            pool.totalAssets = 0;
+        }
+
+        // Attempt to slash deposit if requested
+        if (slashDeposit) {
+            try depositEscrow.slashDeposit(projectId, protocolTreasuryAdmin) {
+                console.log("Successfully slashed deposit for defaulted project:", projectId);
+            } catch Error(string memory reason) {
+                console.log("Failed to slash deposit for project:", projectId, "Reason:", reason);
+            } catch {
+                console.log("Failed to slash deposit for project (unknown error):", projectId);
+            }
+        }
+
+        // Emit event for the default
+        emit LoanDefaulted(poolId, projectId, loan.developer, actualWriteOffAmount, outstandingPrincipal);
+    }
+
+    // New event for loan defaults
+    event LoanDefaulted(
+        uint256 indexed poolId,
+        uint256 indexed projectId,
+        address indexed developer,
+        uint256 writeOffAmount,
+        uint256 totalOutstandingAtDefault
+    );
 }

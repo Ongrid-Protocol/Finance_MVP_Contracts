@@ -42,7 +42,6 @@ contract DevEscrow is Initializable, AccessControlEnumerable, Pausable, Reentran
         address _developer,
         address _fundingSource,
         uint256 _totalAllocated,
-        address, // unused _milestoneAuthorizer parameter (kept for backward compatibility)
         address _pauser
     ) public initializer {
         if (
@@ -77,7 +76,6 @@ contract DevEscrow is Initializable, AccessControlEnumerable, Pausable, Reentran
         whenNotPaused
         onlyRole(Constants.DEFAULT_ADMIN_ROLE)
     {
-        if (msg.sender != fundingSource) revert Errors.CallerNotFundingSource(msg.sender, fundingSource);
         if (amount == 0) revert Errors.AmountCannotBeZero();
 
         emit EscrowFunded(fundingSource, amount);
@@ -88,8 +86,7 @@ contract DevEscrow is Initializable, AccessControlEnumerable, Pausable, Reentran
      * @dev Called by funding source after transferring funds to developer.
      * @param amount The amount that was sent to the developer.
      */
-    function notifyFundingComplete(uint256 amount) external {
-        if (msg.sender != fundingSource) revert Errors.CallerNotFundingSource(msg.sender, fundingSource);
+    function notifyFundingComplete(uint256 amount) external onlyRole(Constants.DEFAULT_ADMIN_ROLE) {
         if (amount == 0) revert Errors.AmountCannotBeZero();
 
         emit FundingComplete(developer, amount);

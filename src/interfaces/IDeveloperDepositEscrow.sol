@@ -86,4 +86,13 @@ interface IDeveloperDepositEscrow {
      * @return uint256 The amount that was transferred.
      */
     function transferDepositToProject(uint256 projectId) external returns (uint256);
+
+    /**
+     * @notice Grants a role to an account.
+     * @dev This is part of the AccessControl mechanism and is included here
+     *      to allow contracts interacting via the interface to manage roles if needed.
+     * @param role The role to grant.
+     * @param account The address to grant the role to.
+     */
+    function grantRole(bytes32 role, address account) external;
 }
