@@ -66,7 +66,7 @@ contract DeveloperDepositEscrow is
 
     /**
      * @notice Funds the deposit for a specific project by transferring USDC from the developer.
-     * @dev Requires caller to have `RELEASER_ROLE` (intended to be ProjectFactory).
+     * @dev Requires caller to have `DEPOSIT_FUNDER_ROLE` (intended to be ProjectFactory).
      *      Checks that the deposit hasn't already been funded for the given project ID.
      * @param projectId The unique identifier for the project.
      * @param developer The address of the project developer providing the deposit.
@@ -77,7 +77,7 @@ contract DeveloperDepositEscrow is
         override // from IDeveloperDepositEscrow
         nonReentrant
         whenNotPaused
-        onlyRole(Constants.RELEASER_ROLE)
+        onlyRole(Constants.DEPOSIT_FUNDER_ROLE)
     {
         if (developer == address(0)) revert Errors.ZeroAddressNotAllowed();
         if (amount == 0) revert Errors.AmountCannotBeZero();

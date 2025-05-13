@@ -66,6 +66,7 @@ library Constants {
     bytes32 public constant KYC_ADMIN_ROLE = keccak256("KYC_ADMIN_ROLE"); // DeveloperRegistry
     bytes32 public constant RELEASER_ROLE = keccak256("RELEASER_ROLE"); // DeveloperDepositEscrow
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE"); // DeveloperDepositEscrow
+    bytes32 public constant DEPOSIT_FUNDER_ROLE = keccak256("DEPOSIT_FUNDER_ROLE"); // DeveloperDepositEscrow (for ProjectFactory/LPM to fund deposits)
     bytes32 public constant PROJECT_HANDLER_ROLE = keccak256("PROJECT_HANDLER_ROLE"); // LiquidityPoolManager, FeeRouter
     bytes32 public constant REPAYMENT_HANDLER_ROLE = keccak256("REPAYMENT_HANDLER_ROLE"); // DirectProjectVault, LiquidityPoolManager
     bytes32 public constant DEV_ESCROW_ROLE = keccak256("DEV_ESCROW_ROLE"); // DirectProjectVault (Authorised to call triggerDrawdown)
