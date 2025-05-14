@@ -231,6 +231,14 @@ contract DeployCore is Script {
         );
         console.log("LiquidityPoolManager roles assigned.");
 
+        console.log("Granting PAUSER_ROLE to PausableGovernor...");
+        DeveloperRegistry(address(developerRegistryProxy)).grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
+        developerDepositEscrowContract.grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
+        projectFactoryProxy.grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
+        LiquidityPoolManager(address(liquidityPoolManagerProxy)).grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
+        repaymentRouterContract.grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
+        console.log("PAUSER_ROLE granted to PausableGovernor.");
+
         console.log("Configuring PausableGovernor...");
         pausableGovernorContract.addPausableContract(address(developerRegistryProxy));
         pausableGovernorContract.addPausableContract(address(developerDepositEscrowContract));

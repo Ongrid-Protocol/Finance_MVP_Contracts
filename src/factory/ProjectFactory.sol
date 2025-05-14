@@ -564,6 +564,15 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         override(AccessControlEnumerable)
         returns (bool)
     {
+        // Add support for pause/unpause interface by checking for the selectors
+        bytes4 pauseSelector = bytes4(keccak256("pause()"));
+        bytes4 unpauseSelector = bytes4(keccak256("unpause()"));
+        bytes4 pauseInterface = pauseSelector ^ unpauseSelector;
+        
+        if (interfaceId == pauseInterface) {
+            return true;
+        }
+        
         return super.supportsInterface(interfaceId);
     }
 }
