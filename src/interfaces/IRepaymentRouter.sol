@@ -18,4 +18,16 @@ interface IRepaymentRouter {
     // Add other functions from RepaymentRouter that ProjectFactory or LiquidityPoolManager might need to call
     // For now, only setFundingSource is explicitly cast to and called.
     // View functions like getFundingSource and getPoolId could also be added if needed.
+
+    /**
+     * @notice Gets payment history for a project
+     * @param projectId The project ID
+     * @return totalRepaid Total amount repaid
+     * @return lastPayment Timestamp of last payment
+     * @return paymentCount Number of payments made
+     */
+    function getProjectPaymentSummary(uint256 projectId)
+        external
+        view
+        returns (uint256 totalRepaid, uint256 lastPayment, uint256 paymentCount);
 }

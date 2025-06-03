@@ -77,7 +77,7 @@ contract DeployCore is Script {
     }
 
     function run() public {
-        address deployer = 0x0a1978f4CeC6AfA754b6Fa11b7D141e529b22741;
+        address deployer = 0xdB487A73A5b7EF3e773ec115F8C209C12E4EBA37;
         vm.startBroadcast();
 
         console.log("Deployer Address (from --account):", deployer);
@@ -232,10 +232,14 @@ contract DeployCore is Script {
         console.log("LiquidityPoolManager roles assigned.");
 
         console.log("Granting PAUSER_ROLE to PausableGovernor...");
-        DeveloperRegistry(address(developerRegistryProxy)).grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
+        DeveloperRegistry(address(developerRegistryProxy)).grantRole(
+            Constants.PAUSER_ROLE, address(pausableGovernorContract)
+        );
         developerDepositEscrowContract.grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
         projectFactoryProxy.grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
-        LiquidityPoolManager(address(liquidityPoolManagerProxy)).grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
+        LiquidityPoolManager(address(liquidityPoolManagerProxy)).grantRole(
+            Constants.PAUSER_ROLE, address(pausableGovernorContract)
+        );
         repaymentRouterContract.grantRole(Constants.PAUSER_ROLE, address(pausableGovernorContract));
         console.log("PAUSER_ROLE granted to PausableGovernor.");
 

@@ -37,6 +37,7 @@ interface ILiquidityPoolManager {
         uint256 loanAmountRequested; // Now only the 80% financed portion
         uint256 totalProjectCost; // Total cost including deposit (100%)
         uint48 requestedTenor; // in days
+        uint32 fundingDeadline; // ADD THIS FIELD
         string metadataCID;
     }
     // Add other relevant fields from ProjectFactory if needed
@@ -159,4 +160,34 @@ interface ILiquidityPoolManager {
      * @return uint256 The corresponding number of LP shares.
      */
     // function previewDeposit(uint256 poolId, uint256 amount) external view returns (uint256);
+
+    /**
+     * @notice Gets all pool investments for a user
+     * @param user The investor address
+     * @return poolIds Array of pool IDs where user has invested
+     * @return shares Array of share amounts in each pool
+     * @return values Array of current values (principal) in each pool
+     */
+    function getUserPoolInvestments(address user)
+        external
+        view
+        returns (uint256[] memory poolIds, uint256[] memory shares, uint256[] memory values);
+
+    /**
+     * @notice Gets detailed loan information for a pool
+     * @param poolId The pool ID
+     * @return projectIds Array of project IDs funded by this pool
+     * @return loanAmounts Array of loan amounts
+     * @return outstandingAmounts Array of outstanding principal amounts
+     * @return states Array of loan states
+     */
+    function getPoolLoans(uint256 poolId)
+        external
+        view
+        returns (
+            uint256[] memory projectIds,
+            uint256[] memory loanAmounts,
+            uint256[] memory outstandingAmounts,
+            uint8[] memory states
+        );
 }

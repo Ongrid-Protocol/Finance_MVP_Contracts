@@ -59,6 +59,11 @@ contract LiquidityPoolManager is
     mapping(uint256 => PoolInfo) public pools;
     uint256 public poolCount;
 
+    // Enhanced tracking for investor portfolio views
+    mapping(address => uint256[]) public userPoolIds; // user => poolIds they've invested in
+    mapping(uint256 => address[]) public poolInvestors; // poolId => investor addresses
+    mapping(uint256 => uint8) public poolProjectStates; // poolId => projectId => state
+
     /**
      * @dev Tracks loans funded by specific pools.
      *      poolId => projectId => LoanRecord
@@ -204,6 +209,13 @@ contract LiquidityPoolManager is
         pool.totalShares = currentTotalShares + shares;
         userShares[msg.sender][poolId] += shares;
 
+        // Track user's pool investments
+        bool alreadyInvested = userShares[msg.sender][poolId] > shares; // Had shares before this deposit
+        if (!alreadyInvested) {
+            userPoolIds[msg.sender].push(poolId);
+            poolInvestors[poolId].push(msg.sender);
+        }
+
         // --- Transfer Funds ---        usdcToken.safeTransferFrom(msg.sender, address(this), amount);
 
         emit PoolDeposit(poolId, msg.sender, amount, shares);
@@ -267,7 +279,7 @@ contract LiquidityPoolManager is
         uint256 contextId = _getNextContextId();
         ProjectFundingContext storage context = fundingContexts[contextId];
 
-        // Initialize context
+        // Initialize context - now params includes fundingDeadline
         context.projectId = projectId;
         context.developer = developer;
         context.loanAmount = params.loanAmountRequested; // The 80% financed amount
@@ -452,6 +464,61 @@ contract LiquidityPoolManager is
         return userShares[user][poolId];
     }
 
+    // Enhanced portfolio views
+    // --- Enhanced Portfolio View Functions ---
+
+    /**
+     * @notice Gets all pool investments for a user
+     * @param user The investor address
+     * @return poolIds Array of pool IDs where user has invested
+     * @return shares Array of share amounts in each pool
+     * @return values Array of current values (principal) in each pool
+     */
+    function getUserPoolInvestments(address user)
+        external
+        view
+        returns (uint256[] memory poolIds, uint256[] memory shares, uint256[] memory values)
+    {
+        poolIds = userPoolIds[user];
+        uint256 length = poolIds.length;
+        shares = new uint256[](length);
+        values = new uint256[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            uint256 poolId = poolIds[i];
+            shares[i] = userShares[user][poolId];
+
+            // Calculate current value based on pool's total assets and shares
+            PoolInfo storage pool = pools[poolId];
+            if (pool.totalShares > 0) {
+                values[i] = (shares[i] * pool.totalAssets) / pool.totalShares;
+            }
+        }
+    }
+
+    /**
+     * @notice Gets detailed loan information for a pool
+     * @param poolId The pool ID
+     * @return projectIds Array of project IDs funded by this pool
+     * @return loanAmounts Array of loan amounts
+     * @return outstandingAmounts Array of outstanding principal amounts
+     * @return states Array of loan states
+     */
+    function getPoolLoans(uint256 poolId)
+        external
+        view
+        returns (
+            uint256[] memory projectIds,
+            uint256[] memory loanAmounts,
+            uint256[] memory outstandingAmounts,
+            uint8[] memory states
+        )
+    {
+        // This would require additional tracking of projectIds per pool
+        // For now, return empty arrays - would need to add this tracking
+        return (new uint256[](0), new uint256[](0), new uint256[](0), new uint8[](0));
+    }
+
     // --- Pausable Functions ---
     function pause() external onlyRole(Constants.PAUSER_ROLE) {
         _pause();
@@ -478,11 +545,11 @@ contract LiquidityPoolManager is
         bytes4 pauseSelector = bytes4(keccak256("pause()"));
         bytes4 unpauseSelector = bytes4(keccak256("unpause()"));
         bytes4 pauseInterface = pauseSelector ^ unpauseSelector;
-        
+
         if (interfaceId == pauseInterface) {
             return true;
         }
-        
+
         return super.supportsInterface(interfaceId);
     }
 

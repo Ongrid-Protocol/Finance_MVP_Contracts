@@ -70,6 +70,14 @@ contract DirectProjectVault is
     uint256 public accruedInterestPerShare_RAY; // Interest accrued per unit of share (RAY precision: 1e27)
     uint256 public lastInterestAccrualTimestamp; // Timestamp of last interest accrual
 
+    // Add a funding deadline field
+    uint32 public fundingDeadline;
+
+    // Enhanced tracking
+    uint8 public projectState; // Current state of the project
+    address[] public investors; // List of all investors
+    mapping(address => bool) public isInvestor; // Quick lookup
+
     // Loan State
     uint256 public principalRepaid; // Total principal repaid so far
     uint256 public interestRepaid; // Total interest repaid so far (tracks amounts received)
@@ -87,10 +95,12 @@ contract DirectProjectVault is
     // Add an address for the deposit escrow
     address public depositEscrowAddress;
 
+    event ProjectCancelled(uint256 indexed projectId, uint32 fundingDeadline);
     // --- Initializer ---
     /**
      * @inheritdoc IProjectVault
      */
+
     function initialize(InitParams calldata params) public initializer {
         // Note: With OpenZeppelin 5.x, initializers like __Pausable_init() are automatically
         // handled when inheriting from the base contracts. No need to explicitly call them.
@@ -128,6 +138,8 @@ contract DirectProjectVault is
         principalRepaid = 0;
         interestRepaid = 0;
         accruedInterestPerShare_RAY = 0;
+        fundingDeadline = uint32(block.timestamp + params.fundingDeadline);
+        projectState = Constants.PROJECT_STATE_FUNDING_OPEN;
     }
 
     /**
@@ -190,6 +202,17 @@ contract DirectProjectVault is
         investorShares[msg.sender] += amount; // Share = amount for simplicity
         totalShares += amount;
 
+        // Track investor
+        if (!isInvestor[msg.sender]) {
+            isInvestor[msg.sender] = true;
+            investors.push(msg.sender);
+        }
+
+        // Check funding deadline
+        if (block.timestamp > fundingDeadline) {
+            revert Errors.DeadlinePassed();
+        }
+
         // Pull funds from investor
         usdcToken.safeTransferFrom(msg.sender, address(this), amount);
 
@@ -214,6 +237,33 @@ contract DirectProjectVault is
     }
 
     /**
+     * @notice Cancels funding if deadline has passed without reaching target
+     * @dev Can be called by anyone after deadline. Returns deposits to investors.
+     */
+    function cancelFundingAfterDeadline() external nonReentrant whenNotPaused {
+        if (fundingClosed) revert Errors.FundingClosed();
+        if (block.timestamp <= fundingDeadline) revert Errors.InvalidState("Deadline not reached");
+        if (totalAssetsInvested == 0) revert Errors.InvalidState("No investments to return");
+
+        projectState = Constants.PROJECT_STATE_CANCELLED;
+
+        // Return all investments
+        for (uint256 i = 0; i < investors.length; i++) {
+            address investor = investors[i];
+            uint256 amount = investorShares[investor];
+            if (amount > 0) {
+                investorShares[investor] = 0;
+                usdcToken.safeTransfer(investor, amount);
+            }
+        }
+
+        totalAssetsInvested = 0;
+        totalShares = 0;
+
+        emit ProjectCancelled(projectId, fundingDeadline);
+    }
+
+    /**
      * @dev Internal logic to close funding, start the loan timer, and fund the escrow.
      */
     function _closeFunding() internal {
@@ -221,6 +271,7 @@ contract DirectProjectVault is
 
         fundingClosed = true;
         loanStartTime = uint64(block.timestamp);
+        projectState = Constants.PROJECT_STATE_FUNDED;
         lastInterestAccrualTimestamp = loanStartTime; // Interest starts accruing now
 
         emit FundingClosed(projectId, totalAssetsInvested);
@@ -607,6 +658,60 @@ contract DirectProjectVault is
         // poolId is unused for a DirectProjectVault.
         if (!fundingClosed) return loanAmount; // If not funded, outstanding is the full target loan amount
         return loanAmount - principalRepaid; // loanAmount is the 80% financed portion
+    }
+    // --- Enhanced View Functions for Investors ---
+
+    /**
+     * @notice Gets complete investment details for a specific investor
+     * @param investor The investor address
+     * @return shares Amount invested
+     * @return principalClaimed Amount of principal already claimed
+     * @return interestClaimed Amount of interest already claimed
+     * @return claimablePrincipalAmount Current claimable principal
+     * @return claimableInterestAmount Current claimable interest
+     */
+    function getInvestorDetails(address investor)
+        external
+        view
+        returns (
+            uint256 shares,
+            uint256 principalClaimed,
+            uint256 interestClaimed,
+            uint256 claimablePrincipalAmount,
+            uint256 claimableInterestAmount
+        )
+    {
+        shares = investorShares[investor];
+        principalClaimed = principalClaimedByInvestor[investor];
+        interestClaimed = interestClaimedByInvestor[investor];
+        claimablePrincipalAmount = claimablePrincipal(investor);
+        claimableInterestAmount = claimableYield(investor);
+    }
+
+    /**
+     * @notice Gets all investors in this vault
+     * @return address[] List of investor addresses
+     */
+    function getAllInvestors() external view returns (address[] memory) {
+        return investors;
+    }
+
+    /**
+     * @notice Gets project summary for dashboard display
+     * @return state Current project state
+     * @return fundingProgress Percentage of funding achieved (basis points)
+     * @return timeRemaining Seconds until funding deadline (0 if passed)
+     * @return totalReturn Total return distributed to investors so far
+     */
+    function getProjectSummary()
+        external
+        view
+        returns (uint8 state, uint16 fundingProgress, uint256 timeRemaining, uint256 totalReturn)
+    {
+        state = projectState;
+        fundingProgress = uint16((totalAssetsInvested * 10000) / loanAmount);
+        timeRemaining = fundingDeadline > block.timestamp ? fundingDeadline - block.timestamp : 0;
+        totalReturn = interestRepaid;
     }
 
     // --- Pausable Functions ---

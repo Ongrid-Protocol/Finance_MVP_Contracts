@@ -22,6 +22,7 @@ interface IProjectVault {
         uint16 initialAprBps;
         address depositEscrowAddress;
         address riskOracleAdapter;
+        uint32 fundingDeadline;
     }
 
     // --- Events ---
@@ -151,4 +152,48 @@ interface IProjectVault {
     function isFundingClosed() external view returns (bool);
 
     // Potentially add other view functions for state variables like developer, projectId, etc.
+
+    /**
+     * @notice Gets complete investment details for a specific investor
+     * @param investor The investor address
+     * @return shares Amount invested
+     * @return principalClaimed Amount of principal already claimed
+     * @return interestClaimed Amount of interest already claimed
+     * @return claimablePrincipalAmount Current claimable principal
+     * @return claimableInterestAmount Current claimable interest
+     */
+    function getInvestorDetails(address investor)
+        external
+        view
+        returns (
+            uint256 shares,
+            uint256 principalClaimed,
+            uint256 interestClaimed,
+            uint256 claimablePrincipalAmount,
+            uint256 claimableInterestAmount
+        );
+
+    /**
+     * @notice Gets all investors in this vault
+     * @return address[] List of investor addresses
+     */
+    function getAllInvestors() external view returns (address[] memory);
+
+    /**
+     * @notice Gets project summary for dashboard display
+     * @return state Current project state
+     * @return fundingProgress Percentage of funding achieved (basis points)
+     * @return timeRemaining Seconds until funding deadline (0 if passed)
+     * @return totalReturn Total return distributed to investors so far
+     */
+    function getProjectSummary()
+        external
+        view
+        returns (uint8 state, uint16 fundingProgress, uint256 timeRemaining, uint256 totalReturn);
+
+    /**
+     * @notice Cancels funding if deadline has passed without reaching target
+     * @dev Can be called by anyone after deadline. Returns deposits to investors.
+     */
+    function cancelFundingAfterDeadline() external;
 }

@@ -1,0 +1,60 @@
+== Logs ==
+  Deployer Address (from --account): 0xdB487A73A5b7EF3e773ec115F8C209C12E4EBA37
+  USDC Address: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+--- Phase 1: Deploying Core Logic & Base Contracts ---
+  DeveloperRegistry (Proxy) deployed at: 0x167D903B149fFC7Be1Eed3a17D57103B2F7132dc
+  DeveloperRegistry (Impl) deployed at: 0x26a9A010eC0B2811e08D170BCa78C6723A0fA4D2
+  DeveloperDepositEscrow deployed at: 0xb6aBDB97c61fBAd8476EdF49382784674C8b23BF
+  DevEscrow Implementation deployed at: 0xA2490FBd86A2aBae43bef5B0a73cC6c35422431E
+  DirectProjectVault Implementation deployed at: 0xDdE0710D37cb0E203E89e09b38E7e6c09F563B05
+
+--- Phase 2: Deploying Routers & Adapters ---
+  FeeRouter (Proxy) deployed at: 0x64e80336079CDCb79b1F6508A0C5B045Ca91A9d6
+  FeeRouter (Impl) deployed at: 0xf2A847D40C436efAC5563342F8874391f5BB7D27
+  RepaymentRouter deployed at: 0xe832b893C3CA904BC3a92CdcBD8dedeF9c120b4b
+  RiskRateOracleAdapter (Proxy) deployed at: 0x3f88408e805A505C4fF83A0458579C152fD4b8a1
+  RiskRateOracleAdapter (Impl) deployed at: 0x9a7406a75b80817C4C5D2c19B849b0dD319dE0B2
+
+--- Phase 3: Deploying Managers & Main Factory ---
+  LiquidityPoolManager (Proxy) deployed at: 0x1562587BC4264f11e51C5A13eAF0c5Ba4bBddCEf
+  LiquidityPoolManager (Impl) deployed at: 0xaAA8C06c97BFF87884B3f088C73E37433F91C417
+  ProjectFactory (Proxy) deployed at: 0x0f6097b8A14E0119f7F635dcd5bcB8669a32b631
+  ProjectFactory (Impl) deployed at: 0x541d8FdC708df25429D1f631bf2472A0691Eb379
+  Configuring ProjectFactory addresses...
+  ProjectFactory addresses configured.
+
+--- Phase 4: Deploying Governance Contract ---
+  PausableGovernor deployed at: 0x279C6b587Ea5a47F6a7CED57A88ab568452747D5
+
+--- Phase 5: Assigning Roles & Permissions ---
+  Assigning roles on DeveloperRegistry...
+  DeveloperRegistry roles assigned.
+  Assigning roles on DeveloperDepositEscrow...
+  DeveloperDepositEscrow roles assigned.
+  Assigning roles on FeeRouter...
+  FeeRouter roles assigned.
+  Assigning roles on RepaymentRouter...
+  RepaymentRouter roles assigned.
+  Assigning ORACLE_ROLE on RiskRateOracleAdapter to specific oracle admin...
+  RiskRateOracleAdapter ORACLE_ROLE assigned.
+  Assigning PROJECT_HANDLER_ROLE on RiskRateOracleAdapter to ProjectFactory and LPM...
+  RiskRateOracleAdapter PROJECT_HANDLER_ROLE for target setting assigned.
+  Assigning roles on LiquidityPoolManager...
+  LiquidityPoolManager roles assigned.
+  Granting PAUSER_ROLE to PausableGovernor...
+  PAUSER_ROLE granted to PausableGovernor.
+  Configuring PausableGovernor...
+  PausableGovernor configured.
+
+--- Deployment Summary ---
+  DeveloperRegistry Proxy: 0x167D903B149fFC7Be1Eed3a17D57103B2F7132dc
+  DeveloperDepositEscrow: 0xb6aBDB97c61fBAd8476EdF49382784674C8b23BF
+  DevEscrow Impl: 0xA2490FBd86A2aBae43bef5B0a73cC6c35422431E
+  DirectProjectVault Impl: 0xDdE0710D37cb0E203E89e09b38E7e6c09F563B05
+  FeeRouter Proxy: 0x64e80336079CDCb79b1F6508A0C5B045Ca91A9d6
+  RepaymentRouter: 0xe832b893C3CA904BC3a92CdcBD8dedeF9c120b4b
+  RiskRateOracleAdapter Proxy: 0x3f88408e805A505C4fF83A0458579C152fD4b8a1
+  LiquidityPoolManager Proxy: 0x1562587BC4264f11e51C5A13eAF0c5Ba4bBddCEf
+  ProjectFactory Proxy: 0x0f6097b8A14E0119f7F635dcd5bcB8669a32b631
+  PausableGovernor: 0x279C6b587Ea5a47F6a7CED57A88ab568452747D5

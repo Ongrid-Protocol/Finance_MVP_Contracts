@@ -72,4 +72,19 @@ library Constants {
     bytes32 public constant DEV_ESCROW_ROLE = keccak256("DEV_ESCROW_ROLE"); // DirectProjectVault (Authorised to call triggerDrawdown)
     bytes32 public constant RISK_ORACLE_ROLE = keccak256("RISK_ORACLE_ROLE"); // DirectProjectVault, LiquidityPoolManager, RiskRateOracleAdapter
     bytes32 public constant REPAYMENT_ROUTER_ROLE = keccak256("REPAYMENT_ROUTER_ROLE"); // FeeRouter
+
+    // --- Project States ---
+    uint8 public constant PROJECT_STATE_PENDING_DEPOSIT = 0;
+    uint8 public constant PROJECT_STATE_FUNDING_OPEN = 1;
+    uint8 public constant PROJECT_STATE_FUNDED = 2;
+    uint8 public constant PROJECT_STATE_ACTIVE = 3;
+    uint8 public constant PROJECT_STATE_COMPLETED = 4;
+    uint8 public constant PROJECT_STATE_DEFAULTED = 5;
+    uint8 public constant PROJECT_STATE_CANCELLED = 6;
+
+    // --- Funding Deadlines ---
+    uint32 public constant FUNDING_DEADLINE_30_DAYS = 30 days;
+    uint32 public constant FUNDING_DEADLINE_2_MONTHS = 60 days;
+    uint32 public constant FUNDING_DEADLINE_3_MONTHS = 90 days;
+    uint32 public constant FUNDING_DEADLINE_6_MONTHS = 180 days;
 }

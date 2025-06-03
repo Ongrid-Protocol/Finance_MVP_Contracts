@@ -2,407 +2,406 @@
 
 This guide outlines the necessary admin functionalities and role granting setup for the OnGrid Protocol smart contracts. It provides a detailed breakdown of all admin-level interactions required for the system to function properly.
 
-## Initial Role Assignments (Automated During Deployment)
+## I. Overview of Deployment and Initial Setup
 
-During contract deployment via `DeployCore.s.sol`, several critical role assignments are automatically performed. These form the foundation of the contract permissions system.
+The `DeployCore.s.sol` script handles the deployment of all core contracts and establishes most of the critical initial role assignments and contract linkages. This automated setup is crucial for the protocol's interconnected components to function correctly from the outset.
 
-### 1. DeveloperRegistry
-* **Deployment Process**: 
-  * Call `initialize(deployer)` - Grants `DEFAULT_ADMIN_ROLE` to deployer
-  * `DeveloperRegistry(proxy).grantRole(Constants.KYC_ADMIN_ROLE, KYC_ADMIN)` - Grants KYC admin role
-  * `DeveloperRegistry(proxy).grantRole(Constants.PROJECT_HANDLER_ROLE, ProjectFactory)` - Allows ProjectFactory to increment funded counter
-  * `DeveloperRegistry(proxy).grantRole(Constants.PROJECT_HANDLER_ROLE, LiquidityPoolManager)` - Allows LPM to increment funded counter
+**Key actions performed by `DeployCore.s.sol`:**
+1.  Deploys implementation contracts and their respective `ERC1967Proxy` contracts.
+2.  Initializes these proxy contracts with necessary parameters, including linking them to each other (e.g., `ProjectFactory` is linked to `DeveloperRegistry`, `DeveloperDepositEscrow`, `LiquidityPoolManager`, etc.).
+3.  Assigns initial `DEFAULT_ADMIN_ROLE`, `PAUSER_ROLE`, and `UPGRADER_ROLE` on upgradeable contracts, typically to the deployer address.
+4.  Grants specific operational roles to designated admin EOA addresses (provided via `.env` variables like `KYC_ADMIN`, `ORACLE_ADMIN`, `SLASHING_ADMIN`).
+5.  Grants necessary inter-contract operational roles (e.g., `PROJECT_HANDLER_ROLE` to `ProjectFactory` and `LiquidityPoolManager` on `DeveloperRegistry` and `FeeRouter`; `REPAYMENT_ROUTER_ROLE` to `RepaymentRouter` on `FeeRouter`).
+6.  Configures the `PausableGovernor` by registering key contracts that it can pause/unpause and grants `PAUSER_ROLE` on these contracts to the `PausableGovernor`.
 
-### 2. DeveloperDepositEscrow
-* **Deployment Process**:
-  * Constructor grants `DEFAULT_ADMIN_ROLE`, `PAUSER_ROLE`, `RELEASER_ROLE`, `SLASHER_ROLE` to deployer
-  * `grantRole(Constants.DEPOSIT_FUNDER_ROLE, ProjectFactory)` - Allows ProjectFactory to fund deposits
-  * `grantRole(Constants.DEPOSIT_FUNDER_ROLE, LiquidityPoolManager)` - Allows LPM to fund deposits
-  * `setRoleAdminExternally(Constants.RELEASER_ROLE, Constants.DEFAULT_ADMIN_ROLE)` - Sets admin for RELEASER_ROLE
-  * `grantRole(Constants.RELEASER_ROLE, deployer)` - Allows deployer to release deposits
-  * `grantRole(Constants.RELEASER_ROLE, ProjectFactory)` - Allows ProjectFactory to release deposits
-  * `grantRole(Constants.RELEASER_ROLE, LiquidityPoolManager)` - Allows LPM to release deposits
-  * `grantRole(Constants.SLASHER_ROLE, SLASHING_ADMIN)` - Allows slashing admin to slash deposits
+**The primary role of the Admin Panel post-deployment is:**
+*   To allow admins (initially the deployer or an EOA granted `DEFAULT_ADMIN_ROLE`) to manage specific operational aspects of the protocol.
+*   To further manage roles: granting or revoking operational roles to other admin EOAs if the initial `.env` admins need to be changed, augmented, or if roles need to be reassigned.
+*   To execute emergency or special administrative functions not part of regular user flows.
 
-### 3. FeeRouter
-* **Deployment Process**:
-  * Call `initialize(deployer, USDC, DeveloperRegistry, PROTOCOL_TREASURY_ADMIN, CARBON_TREASURY_ADMIN)` - Sets up treasuries and grants `DEFAULT_ADMIN_ROLE` to deployer
-  * `grantRole(Constants.REPAYMENT_ROUTER_ROLE, RepaymentRouter)` - Allows RepaymentRouter to route fees
-  * `grantRole(Constants.PROJECT_HANDLER_ROLE, ProjectFactory)` - Allows ProjectFactory to set project details
-  * `grantRole(Constants.PROJECT_HANDLER_ROLE, LiquidityPoolManager)` - Allows LPM to set project details
+## II. Admin Panel: Initial Setup and Role Verification/Management
 
-### 4. RepaymentRouter
-* **Deployment Process**:
-  * Constructor grants `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE` to deployer
-  * `grantRole(Constants.PROJECT_HANDLER_ROLE, ProjectFactory)` - Allows ProjectFactory to set funding source
-  * `grantRole(Constants.PROJECT_HANDLER_ROLE, LiquidityPoolManager)` - Allows LPM to set funding source
+This section details the manual steps required *after* deployment using the Admin Panel, primarily for verifying the automated setup and making any further adjustments to role assignments for External Admin EOAs. The account performing these actions in the Admin Panel must have the `DEFAULT_ADMIN_ROLE` on the respective target contracts. The deployer address initially holds this role on most contracts.
 
-### 5. RiskRateOracleAdapter
-* **Deployment Process**:
-  * Call `initialize(deployer)` - Grants `DEFAULT_ADMIN_ROLE`, `UPGRADER_ROLE`, `RISK_ORACLE_ROLE` to deployer
-  * `grantRole(Constants.RISK_ORACLE_ROLE, ORACLE_ADMIN)` - Grants oracle role to designated admin
-  * `grantRole(Constants.PROJECT_HANDLER_ROLE, ProjectFactory)` - Allows ProjectFactory to set target contract
-  * `grantRole(Constants.PROJECT_HANDLER_ROLE, LiquidityPoolManager)` - Allows LPM to set target contract
+### A. Connecting to the Admin Panel
+1.  **Connect Wallet**: Ensure the wallet connected to the Admin Panel holds the necessary administrative privileges (e.g., the deployer address or an address that has been granted `DEFAULT_ADMIN_ROLE` on the relevant contracts).
+2.  **Select Network**: Ensure the Admin Panel is connected to the correct blockchain network where the contracts are deployed.
+3.  **Load Contract Addresses**: The Admin Panel should be pre-configured or allow configuration with the deployed addresses of all core contracts. These addresses are outputted by the `DeployCore.s.sol` script.
 
-### 6. PausableGovernor
-* **Deployment Process**:
-  * Constructor grants `DEFAULT_ADMIN_ROLE` and `PAUSER_ROLE` to deployer
-  * `addPausableContract` for DeveloperRegistry, DeveloperDepositEscrow, ProjectFactory, LiquidityPoolManager, RepaymentRouter - Registers contracts that can be paused
+### B. Verifying and Managing Key External Admin Roles
 
-## Admin Panel Functionality
+The `DeployCore.s.sol` script assigns critical roles to addresses specified in your environment variables (`KYC_ADMIN`, `ORACLE_ADMIN`, `SLASHING_ADMIN`, etc.). The Admin Panel should allow verification of these assignments and modification if necessary.
 
-The admin panel should be built to support the following key functionalities, organized by categories:
+**For each role below, the Admin Panel should provide an interface to:**
+*   View current holders of the role.
+*   Grant the role to a new address.
+*   Revoke the role from an existing address.
 
-### 1. KYC Management
+**Actor**: An EOA with `DEFAULT_ADMIN_ROLE` on the target contract.
 
-#### Functionality Required
-1. **Submit KYC for a Developer**
-   * **Contract**: DeveloperRegistry
-   * **Function**: `submitKYC(address developer, bytes32 kycHash, string kycDataLocation)`
-   * **Role Required**: `KYC_ADMIN_ROLE`
-   * **UI Elements**: 
-     * Form with fields for developer address
-     * File upload for KYC documents (stored off-chain)
-     * Hash generation from the documents
-     * IPFS or other storage for KYC documents
+1.  **KYC Administrator (`KYC_ADMIN_ROLE`)**
+    *   **Purpose**: Manages developer KYC submissions and verification statuses.
+    *   **Target Contract**: `DeveloperRegistry`
+    *   **Role Constant**: `Constants.KYC_ADMIN_ROLE`
+    *   **Deployment Action**: `DeployCore.s.sol` grants this role to the `KYC_ADMIN` (from `.env`).
+    *   **Admin Panel Actions**:
+        *   **Grant**: `DeveloperRegistry.grantRole(KYC_ADMIN_ROLE, newKycAdminAddress)`
+        *   **Revoke**: `DeveloperRegistry.revokeRole(KYC_ADMIN_ROLE, existingKycAdminAddress)`
+    *   **Verification**:
+        *   Call `DeveloperRegistry.hasRole(KYC_ADMIN_ROLE, kycAdminAddressFromEnv)` should return `true`.
+        *   Call `DeveloperRegistry.getRoleMemberCount(KYC_ADMIN_ROLE)` and `DeveloperRegistry.getRoleMember(KYC_ADMIN_ROLE, index)` to list members.
 
-2. **Set KYC Verification Status**
-   * **Contract**: DeveloperRegistry
-   * **Function**: `setVerifiedStatus(address developer, bool verified)`
-   * **Role Required**: `KYC_ADMIN_ROLE` 
-   * **UI Elements**:
-     * Search for developer by address
-     * Toggle switch for verification status
-     * Submit button
+2.  **Slashing Administrator (`SLASHER_ROLE`)**
+    *   **Purpose**: Authorizes slashing of developer deposits in case of default.
+    *   **Target Contract**: `DeveloperDepositEscrow`
+    *   **Role Constant**: `Constants.SLASHER_ROLE`
+    *   **Deployment Action**: `DeployCore.s.sol` grants this role to `SLASHING_ADMIN` (from `.env`).
+    *   **Admin Panel Actions**:
+        *   **Grant**: `DeveloperDepositEscrow.grantRole(SLASHER_ROLE, newSlashingAdminAddress)`
+        *   **Revoke**: `DeveloperDepositEscrow.revokeRole(SLASHER_ROLE, existingSlashingAdminAddress)`
+    *   **Verification**:
+        *   Call `DeveloperDepositEscrow.hasRole(SLASHER_ROLE, slashingAdminAddressFromEnv)` should return `true`.
 
-3. **View Developer KYC Status**
-   * **Contract**: DeveloperRegistry
-   * **Function**: `getDeveloperInfo(address developer)`, `getKycDataLocation(address developer)`
-   * **UI Elements**:
-     * Search by developer address
-     * Display KYC status, hash, and link to data location
-     * Display funding history count
+3.  **Risk Oracle Administrator (`RISK_ORACLE_ROLE` on `RiskRateOracleAdapter`)**
+    *   **Purpose**: Allows pushing updated risk parameters (e.g., APR) to projects via the `RiskRateOracleAdapter`. Also allows triggering periodic assessments and setting project risk levels.
+    *   **Target Contract**: `RiskRateOracleAdapter`
+    *   **Role Constant**: `Constants.RISK_ORACLE_ROLE`
+    *   **Deployment Action**: `DeployCore.s.sol` grants this role to `ORACLE_ADMIN` (from `.env`).
+    *   **Admin Panel Actions**:
+        *   **Grant**: `RiskRateOracleAdapter.grantRole(RISK_ORACLE_ROLE, newOracleAdminAddress)`
+        *   **Revoke**: `RiskRateOracleAdapter.revokeRole(RISK_ORACLE_ROLE, existingOracleAdminAddress)`
+    *   **Verification**:
+        *   Call `RiskRateOracleAdapter.hasRole(RISK_ORACLE_ROLE, oracleAdminAddressFromEnv)` should return `true`.
 
-#### Implementation Steps
-1. Create admin role form with developer address field
-2. Integrate with file upload system for KYC documents
-3. Generate hash from documents using keccak256
-4. Upload documents to IPFS or chosen storage system
-5. Call `submitKYC` with address, hash, and location
-6. Implement verification toggle for approved developers
+4.  **PausableGovernor Administrators**
+    *   **PAUSER_ROLE on `PausableGovernor`**:
+        *   **Purpose**: Allows an address to call `pause(targetContract)` and `unpause(targetContract)` on the `PausableGovernor`, which in turn calls `pause()`/`unpause()` on the registered target contracts.
+        *   **Target Contract**: `PausableGovernor`
+        *   **Role Constant**: `Constants.PAUSER_ROLE`
+        *   **Deployment Action**: `DeployCore.s.sol` grants this role on `PausableGovernor` to the `deployer`. The `PausableGovernor` itself is granted `PAUSER_ROLE` on the individual pausable contracts (`DeveloperRegistry`, `DeveloperDepositEscrow`, `ProjectFactory`, `LiquidityPoolManager`, `RepaymentRouter`).
+        *   **Admin Panel Actions (by `DEFAULT_ADMIN_ROLE` on `PausableGovernor`)**:
+            *   **Grant**: `PausableGovernor.grantRole(PAUSER_ROLE, newGlobalPauserAddress)`
+            *   **Revoke**: `PausableGovernor.revokeRole(PAUSER_ROLE, existingGlobalPauserAddress)`
+    *   **DEFAULT_ADMIN_ROLE on `PausableGovernor`**:
+        *   **Purpose**: Allows an address to add or remove contracts from the `PausableGovernor`'s control list.
+        *   **Target Contract**: `PausableGovernor`
+        *   **Role Constant**: `Constants.DEFAULT_ADMIN_ROLE`
+        *   **Deployment Action**: `DeployCore.s.sol` grants this role on `PausableGovernor` to the `deployer`.
+        *   **Admin Panel Actions (by current `DEFAULT_ADMIN_ROLE` on `PausableGovernor`)**:
+            *   Consider if this role needs to be transferred or granted to another EOA. If so: `PausableGovernor.grantRole(DEFAULT_ADMIN_ROLE, newGovernorFullAdminAddress)`. The original admin might then renounce their role.
 
-### 2. Deposit Management
+5.  **Clone Administrators (`PAUSER_ADMIN_FOR_CLONES`, `ADMIN_FOR_VAULT_CLONES`)**
+    *   These addresses are passed during `ProjectFactory.setAddresses()` and used during the initialization of cloned `DevEscrow` and `DirectProjectVault` contracts.
+    *   **`PAUSER_ADMIN_FOR_CLONES`**: Receives `PAUSER_ROLE` on newly created `DevEscrow` clones.
+    *   **`ADMIN_FOR_VAULT_CLONES`**: Receives `DEFAULT_ADMIN_ROLE` (and thus `PAUSER_ROLE`, `UPGRADER_ROLE`) on newly created `DirectProjectVault` clones.
+    *   **Admin Panel Action**: If these admin addresses need to be changed *after* `ProjectFactory.setAddresses()` has been called, the `ProjectFactory.setAddresses()` function must be called again by an account with `DEFAULT_ADMIN_ROLE` on `ProjectFactory` with the new admin addresses. This will affect *future* clones. For *existing* clones, roles would need to be managed directly on those clone instances by their current admin.
 
-#### Functionality Required
-1. **Manually Release Deposit (Emergency/Contingency)**
-   * **Contract**: DeveloperDepositEscrow
-   * **Function**: `releaseDeposit(uint256 projectId)`
-   * **Role Required**: `RELEASER_ROLE`
-   * **UI Elements**:
-     * Project ID input field
-     * Confirmation dialog
-     * Release button
+### C. Verifying Inter-Contract Roles
+The Admin Panel should also allow viewing (though not typically modifying, as these are core protocol links) key inter-contract roles established by `DeployCore.s.sol`. This helps in diagnosing issues. Examples:
+*   `ProjectFactory` having `PROJECT_HANDLER_ROLE` on `DeveloperRegistry`, `FeeRouter`, `RiskRateOracleAdapter`, `RepaymentRouter`.
+*   `ProjectFactory` having `DEPOSIT_FUNDER_ROLE` and `RELEASER_ROLE` on `DeveloperDepositEscrow`.
+*   `LiquidityPoolManager` having similar roles.
+*   `RepaymentRouter` having `REPAYMENT_ROUTER_ROLE` on `FeeRouter`.
+*   `RiskRateOracleAdapter` having `RISK_ORACLE_ROLE` on `LiquidityPoolManager` and `DirectProjectVault` (clones).
 
-2. **Slash Deposit (When Default Occurs)**
-   * **Contract**: DeveloperDepositEscrow
-   * **Function**: `slashDeposit(uint256 projectId, address feeRecipient)`
-   * **Role Required**: `SLASHER_ROLE`
-   * **UI Elements**:
-     * Project ID input field
-     * Fee recipient address field (defaulting to protocol treasury)
-     * Confirmation dialog
-     * Slash button
+**Verification Method**: Use `hasRole(ROLE, contractAddress)` on the contract granting the role.
 
-3. **View Deposit Status**
-   * **Contract**: DeveloperDepositEscrow
-   * **Functions**: `getDepositAmount(uint256 projectId)`, `getProjectDeveloper(uint256 projectId)`, `isDepositSettled(uint256 projectId)`
-   * **UI Elements**:
-     * Search by project ID
-     * Display deposit amount, developer, and settlement status
+## III. Admin Panel Functionality and Integration Steps
 
-#### Implementation Steps
-1. Create deposit management dashboard
-2. Implement project search functionality
-3. Display detailed deposit information
-4. Add release and slash buttons with confirmation dialogues
-5. Integrate with deposit events for real-time updates
-
-### 3. Pool Management
+### 1. KYC Management (DeveloperRegistry)
 
 #### Functionality Required
-1. **Create Liquidity Pool**
-   * **Contract**: LiquidityPoolManager
-   * **Function**: `createPool(uint256 poolId_unused, string calldata name)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Pool name input field
-     * Create pool button
+1.  **Submit KYC Data for a Developer**
+    *   **Context**: After an admin has reviewed KYC documents off-chain.
+    *   **Action**: Admin uses the panel to submit the developer's address, a hash of their KYC documents, and the off-chain storage location of these documents (e.g., IPFS CID).
+    *   **Contract Call**: `DeveloperRegistry.submitKYC(address developer, bytes32 kycHash, string calldata kycDataLocation)`
+    *   **Caller Requirement**: Admin EOA must have `KYC_ADMIN_ROLE` on `DeveloperRegistry`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `KYCSubmitted` event is emitted with correct `developer` and `kycHash`.
+        *   Verify using `DeveloperRegistry.getDeveloperInfo(developer)` that `kycDataHash` is updated.
+        *   Verify using `DeveloperRegistry.getKycDataLocation(developer)` that the location string is updated.
 
-2. **Set Pool Risk Level**
-   * **Contract**: LiquidityPoolManager
-   * **Function**: `setPoolRiskLevel(uint256 poolId, uint16 riskLevel, uint16 baseAprBps)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Pool ID selector
-     * Risk level selector (1-3)
-     * Base APR input (in basis points)
-     * Update button
+2.  **Set Developer's KYC Verification Status**
+    *   **Context**: After KYC data is submitted and reviewed.
+    *   **Action**: Admin sets the developer's status to verified or not verified.
+    *   **Contract Call**: `DeveloperRegistry.setVerifiedStatus(address developer, bool verified)`
+    *   **Caller Requirement**: Admin EOA must have `KYC_ADMIN_ROLE` on `DeveloperRegistry`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `KYCStatusChanged` event is emitted with correct `developer` and `isVerified` status.
+        *   Verify using `DeveloperRegistry.isVerified(developer)` or `DeveloperRegistry.getDeveloperInfo(developer)` that `isVerified` status is updated.
 
-3. **Handle Loan Default**
-   * **Contract**: LiquidityPoolManager
-   * **Function**: `handleLoanDefault(uint256 poolId, uint256 projectId, uint256 writeOffAmount, bool slashDeposit)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Pool ID selector
-     * Project ID input
-     * Write-off amount input (with option for full amount)
-     * Checkbox to also slash deposit
-     * Confirmation dialog
-     * Process default button
+3.  **View Developer KYC Information**
+    *   **Action**: Admin searches for a developer by address to view their KYC hash, data location, verification status, and number of times funded.
+    *   **Contract Calls**:
+        *   `DeveloperRegistry.getDeveloperInfo(address developer)`
+        *   `DeveloperRegistry.getKycDataLocation(address developer)`
+        *   `DeveloperRegistry.isVerified(address developer)` (redundant if using `getDeveloperInfo`)
+        *   `DeveloperRegistry.getTimesFunded(address developer)` (redundant if using `getDeveloperInfo`)
+    *   **Testing Success**: Data displayed in the panel matches the on-chain state.
 
-4. **View Pool Information**
-   * **Contract**: LiquidityPoolManager
-   * **Functions**: `getPoolInfo(uint256 poolId)`, `getPoolLoanRecord(uint256 poolId, uint256 projectId)`
-   * **UI Elements**:
-     * Pool selector
-     * Display pool details (assets, shares)
-     * Display all active loans in the pool
-     * Filter/search for specific projects
-
-#### Implementation Steps
-1. Create pool management dashboard
-2. Implement pool creation form
-3. Add risk level configuration panel
-4. Create loan default handling interface
-5. Develop detailed pool information views
-
-### 4. Risk Management & Oracle
+### 2. Developer Deposit Management (DeveloperDepositEscrow)
 
 #### Functionality Required
-1. **Set Project Risk Level**
-   * **Contract**: RiskRateOracleAdapter
-   * **Function**: `setProjectRiskLevel(uint256 projectId, uint16 riskLevel)`
-   * **Role Required**: `RISK_ORACLE_ROLE`
-   * **UI Elements**:
-     * Project ID input
-     * Risk level selector (1-3)
-     * Update button
+1.  **Manually Release Deposit (Emergency/Contingency)**
+    *   **Context**: For exceptional situations where a project's deposit needs manual release to the developer (e.g., project cancellation before funding, error correction). This is typically handled automatically by `ProjectFactory` or `LiquidityPoolManager` for successful low-value projects or by `DirectProjectVault` clones for high-value projects.
+    *   **Action**: Admin specifies the `projectId` and triggers the release.
+    *   **Contract Call**: `DeveloperDepositEscrow.releaseDeposit(uint256 projectId)`
+    *   **Caller Requirement**: Admin EOA must have `RELEASER_ROLE` on `DeveloperDepositEscrow`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `DepositReleased` event is emitted with correct `projectId`, `developer`, and `amount`.
+        *   Developer's USDC balance increases by the deposit amount.
+        *   `DeveloperDepositEscrow.isDepositSettled(projectId)` returns `true`.
 
-2. **Update Risk Parameters**
-   * **Contract**: RiskRateOracleAdapter
-   * **Function**: `pushRiskParams(uint256 projectId, uint16 aprBps, uint48 tenor)`
-   * **Role Required**: `RISK_ORACLE_ROLE`
-   * **UI Elements**:
-     * Project ID input
-     * APR input (in basis points)
-     * Tenor input (in days - zero if unchanged)
-     * Push update button
+2.  **Slash Deposit (Project Default)**
+    *   **Context**: If a project defaults and its associated deposit needs to be slashed.
+    *   **Action**: Admin specifies `projectId` and the `feeRecipient` (typically the Protocol Treasury Admin address set in `LiquidityPoolManager` or another designated treasury).
+    *   **Contract Call**: `DeveloperDepositEscrow.slashDeposit(uint256 projectId, address feeRecipient)`
+    *   **Caller Requirement**: Admin EOA must have `SLASHER_ROLE` on `DeveloperDepositEscrow`. The `SLASHING_ADMIN` (from `.env`) is granted this by `DeployCore`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `DepositSlashed` event is emitted with correct `projectId`, `developer`, `amount`, and `feeRecipient`.
+        *   The `feeRecipient`'s USDC balance increases by the deposit amount.
+        *   `DeveloperDepositEscrow.isDepositSettled(projectId)` returns `true`.
 
-3. **Trigger Batch Risk Assessment**
-   * **Contract**: RiskRateOracleAdapter
-   * **Function**: `triggerBatchRiskAssessment()`
-   * **Role Required**: `RISK_ORACLE_ROLE`
-   * **UI Elements**:
-     * Trigger button
-     * Last assessment timestamp display
+3.  **View Deposit Status**
+    *   **Action**: Admin searches by `projectId` to view deposit details.
+    *   **Contract Calls**:
+        *   `DeveloperDepositEscrow.getDepositAmount(uint256 projectId)`
+        *   `DeveloperDepositEscrow.getProjectDeveloper(uint256 projectId)`
+        *   `DeveloperDepositEscrow.isDepositSettled(uint256 projectId)`
+    *   **Testing Success**: Data displayed matches the on-chain state.
 
-4. **Manage Assessment Interval**
-   * **Contract**: RiskRateOracleAdapter
-   * **Function**: `setAssessmentInterval(uint256 newInterval)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Current interval display
-     * New interval input (in seconds)
-     * Update button
-
-#### Implementation Steps
-1. Create risk management dashboard
-2. Implement project risk level configuration
-3. Add APR update functionality
-4. Build batch assessment trigger interface
-5. Add assessment interval configuration
-
-### 5. System Pause Control
+### 3. Liquidity Pool Management (LiquidityPoolManager)
 
 #### Functionality Required
-1. **Pause Specific Contract**
-   * **Contract**: PausableGovernor
-   * **Function**: `pause(address target)`
-   * **Role Required**: `PAUSER_ROLE`
-   * **UI Elements**:
-     * Contract selector dropdown
-     * Pause button
-     * Current status indicator
+1.  **Create New Liquidity Pool**
+    *   **Action**: Admin provides a name for the new pool. The `poolId` is assigned incrementally.
+    *   **Contract Call**: `LiquidityPoolManager.createPool(uint256 poolId_unused, string calldata name)` (Note: `poolId` parameter is currently unused in `createPool` as `poolCount` is used internally).
+    *   **Caller Requirement**: Admin EOA must have `DEFAULT_ADMIN_ROLE` on `LiquidityPoolManager`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `PoolCreated` event is emitted with the new `poolId`, `name`, and `creator` address.
+        *   `LiquidityPoolManager.getPoolInfo(newPoolId)` returns the correct details with `exists = true`.
+        *   `LiquidityPoolManager.poolCount()` is incremented.
 
-2. **Unpause Specific Contract**
-   * **Contract**: PausableGovernor
-   * **Function**: `unpause(address target)`
-   * **Role Required**: `PAUSER_ROLE`
-   * **UI Elements**:
-     * Contract selector dropdown
-     * Unpause button
-     * Current status indicator
+2.  **Set Pool Risk Level and Base APR**
+    *   **Action**: Admin selects a `poolId`, assigns a `riskLevel` (1=low, 2=medium, 3=high), and sets a `baseAprBps` for loans funded by this pool. This APR is used if the `RiskRateOracleAdapter` does not provide a specific rate for a project or if the oracle call fails.
+    *   **Contract Call**: `LiquidityPoolManager.setPoolRiskLevel(uint256 poolId, uint16 riskLevel, uint16 baseAprBps)`
+    *   **Caller Requirement**: Admin EOA must have `DEFAULT_ADMIN_ROLE` on `LiquidityPoolManager`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   Call `LiquidityPoolManager.poolRiskLevels(poolId)` to verify `riskLevel`.
+        *   Call `LiquidityPoolManager.poolAprRates(poolId)` to verify `baseAprBps`.
 
-3. **Add/Remove Pausable Contract**
-   * **Contract**: PausableGovernor
-   * **Functions**: `addPausableContract(address target)`, `removePausableContract(address target)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Contract address input
-     * Add/Remove buttons
-     * List of registered pausable contracts
+3.  **Handle Loan Default in a Pool**
+    *   **Context**: When a low-value project funded by a liquidity pool defaults.
+    *   **Action**: Admin specifies `poolId`, `projectId`, an optional `writeOffAmount` (defaults to full outstanding principal if 0), and whether to `slashDeposit`.
+    *   **Contract Call**: `LiquidityPoolManager.handleLoanDefault(uint256 poolId, uint256 projectId, uint256 writeOffAmount, bool slashDeposit)`
+    *   **Caller Requirement**: Admin EOA must have `DEFAULT_ADMIN_ROLE` on `LiquidityPoolManager`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `LoanDefaulted` event is emitted with correct details.
+        *   `LiquidityPoolManager.getPoolLoanRecord(poolId, projectId)` shows `isActive = false`.
+        *   `LiquidityPoolManager.getPoolInfo(poolId)` shows `totalAssets` reduced by `actualWriteOffAmount`.
+        *   If `slashDeposit` was true, verify `DeveloperDepositEscrow.slashDeposit` was called (check `DepositSlashed` event and `DeveloperDepositEscrow.isDepositSettled(projectId)`). The recipient of slashed funds is `protocolTreasuryAdmin` stored in `LiquidityPoolManager`.
 
-#### Implementation Steps
-1. Create emergency controls dashboard
-2. Implement contract selector with status indicators
-3. Add pause/unpause functionality
-4. Create interface for managing pausable contracts list
+4.  **View Pool and Loan Information**
+    *   **Action**: Admin selects a pool to view its details (total assets, total shares, risk level, APR) and a list of loans funded by it.
+    *   **Contract Calls**:
+        *   `LiquidityPoolManager.getPoolInfo(uint256 poolId)`
+        *   `LiquidityPoolManager.poolRiskLevels(uint256 poolId)`
+        *   `LiquidityPoolManager.poolAprRates(uint256 poolId)`
+        *   To list loans, the panel may need to iterate through project IDs known to be associated with the pool or listen to `PoolProjectFunded` events historically. Then call `LiquidityPoolManager.getPoolLoanRecord(uint256 poolId, uint256 projectId)` for each.
+    *   **Testing Success**: Displayed data accurately reflects the on-chain state.
 
-### 6. Treasury & Fee Management
-
-#### Functionality Required
-1. **Update Protocol Treasury**
-   * **Contract**: FeeRouter
-   * **Function**: `setProtocolTreasury(address _newTreasury)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Current treasury address display
-     * New treasury address input
-     * Update button
-
-2. **Update Carbon Treasury**
-   * **Contract**: FeeRouter
-   * **Function**: `setCarbonTreasury(address _newTreasury)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Current treasury address display
-     * New treasury address input
-     * Update button
-
-3. **View Fee Distribution**
-   * **Contract**: FeeRouter
-   * **Events to Monitor**: `FeeRouted`
-   * **UI Elements**:
-     * Fee distribution history table
-     * Summary statistics for fees collected
-     * Filtering by date range
-
-#### Implementation Steps
-1. Create fee management dashboard
-2. Implement treasury update interface
-3. Build fee distribution history view
-4. Add summary statistics visualization
-
-### 7. Vault Management (High-Value Projects)
+### 4. Risk Management and Oracle Interaction (RiskRateOracleAdapter)
 
 #### Functionality Required
-1. **Manually Close Funding**
-   * **Contract**: DirectProjectVault (instance)
-   * **Function**: `closeFundingManually()`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE` on the specific vault
-   * **UI Elements**:
-     * Vault address input/selector
-     * Current funding status display
-     * Close funding button
+1.  **Set Project Risk Level**
+    *   **Context**: An off-chain risk assessment determines a project's risk level (1-low, 2-medium, 3-high).
+    *   **Action**: Admin (or automated oracle system with `RISK_ORACLE_ROLE`) inputs `projectId` and `riskLevel`.
+    *   **Contract Call**: `RiskRateOracleAdapter.setProjectRiskLevel(uint256 projectId, uint16 riskLevel)`
+    *   **Caller Requirement**: Caller must have `RISK_ORACLE_ROLE` on `RiskRateOracleAdapter`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `ProjectRiskLevelSet` event emitted.
+        *   `RiskRateOracleAdapter.getProjectRiskLevel(projectId)` returns the set level.
 
-2. **Manually Close Loan**
-   * **Contract**: DirectProjectVault (instance)
-   * **Function**: `closeLoan()`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE` on the specific vault
-   * **UI Elements**:
-     * Vault address input/selector
-     * Current loan status display
-     * Close loan button (only enabled if full repayment received)
+2.  **Push Updated Risk Parameters (APR) to a Project**
+    *   **Context**: An off-chain oracle determines a new APR for a project. The tenor is usually not changed post-funding.
+    *   **Action**: Admin (or automated oracle system with `RISK_ORACLE_ROLE`) inputs `projectId`, new `aprBps`, and `tenor` (0 if unchanged).
+    *   **Contract Call**: `RiskRateOracleAdapter.pushRiskParams(uint256 projectId, uint16 aprBps, uint48 tenor)`
+    *   **Caller Requirement**: Admin EOA (or oracle contract) must have `RISK_ORACLE_ROLE` on `RiskRateOracleAdapter`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `RiskParamsPushed` event is emitted with correct details.
+        *   If the project is a Vault, `DirectProjectVault.getCurrentAprBps()` on the target vault reflects the new APR.
+        *   If the project is pool-funded, `LiquidityPoolManager.getPoolLoanRecord(poolId, projectId).aprBps` reflects the new APR.
 
-3. **View Vault Details**
-   * **Contract**: DirectProjectVault (instance)
-   * **Functions**: Various getters like `getTotalAssetsInvested()`, `getLoanAmount()`, etc.
-   * **UI Elements**:
-     * Vault address input/selector
-     * Comprehensive vault details display
-     * Investor information
-     * Repayment status
+3.  **Trigger Batch Risk Assessment / Request Periodic Assessment**
+    *   **`triggerBatchRiskAssessment()`**:
+        *   **Context**: To signal off-chain systems to reassess all projects.
+        *   **Action**: Admin triggers this function.
+        *   **Contract Call**: `RiskRateOracleAdapter.triggerBatchRiskAssessment()`
+        *   **Caller Requirement**: `RISK_ORACLE_ROLE` on `RiskRateOracleAdapter`.
+        *   **Testing Success**: `BatchRiskAssessmentTriggered` event emitted.
+    *   **`requestPeriodicAssessment(uint256 projectId)`**:
+        *   **Context**: To signal off-chain systems for a specific project if its assessment interval has passed.
+        *   **Action**: Admin triggers for a specific `projectId`.
+        *   **Contract Call**: `RiskRateOracleAdapter.requestPeriodicAssessment(uint256 projectId)`
+        *   **Caller Requirement**: `RISK_ORACLE_ROLE` on `RiskRateOracleAdapter`.
+        *   **Testing Success**: `PeriodicAssessmentRequested` event emitted if interval passed. `lastAssessmentTimestamp` for the project is updated.
 
-#### Implementation Steps
-1. Create vault management dashboard
-2. Implement vault lookup functionality
-3. Add funding closure interface
-4. Build loan closure interface
-5. Develop detailed vault information view
+4.  **Manage Assessment Interval**
+    *   **Action**: Admin updates the global `assessmentInterval` for periodic assessments.
+    *   **Contract Call**: `RiskRateOracleAdapter.setAssessmentInterval(uint256 newInterval)`
+    *   **Caller Requirement**: `DEFAULT_ADMIN_ROLE` on `RiskRateOracleAdapter`.
+    *   **Testing Success**: `AssessmentIntervalUpdated` event emitted. `RiskRateOracleAdapter.assessmentInterval()` returns the new interval.
 
-### 8. Role Management
+5.  **View Oracle Configuration**
+    *   **Action**: View target contracts for projects, pool IDs, risk levels, and assessment interval.
+    *   **Contract Calls**:
+        *   `RiskRateOracleAdapter.getTargetContract(uint256 projectId)`
+        *   `RiskRateOracleAdapter.getPoolId(uint256 projectId)`
+        *   `RiskRateOracleAdapter.getProjectRiskLevel(uint256 projectId)`
+        *   `RiskRateOracleAdapter.assessmentInterval()`
+        *   `RiskRateOracleAdapter.lastAssessmentTimestamp(uint256 projectId)`
+    *   **Testing Success**: Data displayed matches on-chain state.
+
+### 5. System Pause Control (PausableGovernor)
+
+The `PausableGovernor` contract centralizes pause/unpause operations for critical system contracts. `DeployCore.s.sol` registers these contracts with the governor and grants `PAUSER_ROLE` to the governor on those contracts.
 
 #### Functionality Required
-1. **Grant/Revoke KYC Admin Role**
-   * **Contract**: DeveloperRegistry
-   * **Functions**: `grantRole(Constants.KYC_ADMIN_ROLE, address)`, `revokeRole(Constants.KYC_ADMIN_ROLE, address)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Address input field
-     * Grant/Revoke buttons
-     * Current KYC admins list
+1.  **Pause a Registered Contract**
+    *   **Action**: Admin selects a target contract (already registered with the governor) and triggers pause.
+    *   **Contract Call**: `PausableGovernor.pause(address targetContract)`
+    *   **Caller Requirement**: Admin EOA must have `PAUSER_ROLE` on `PausableGovernor`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `Paused` event from `PausableGovernor` emitted.
+        *   The target contract's `paused()` function (e.g., `DeveloperRegistry.paused()`) returns `true`.
+        *   State-changing functions on the target contract should revert or be blocked.
 
-2. **Grant/Revoke Slasher Role**
-   * **Contract**: DeveloperDepositEscrow
-   * **Functions**: `grantRole(Constants.SLASHER_ROLE, address)`, `revokeRole(Constants.SLASHER_ROLE, address)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Address input field
-     * Grant/Revoke buttons
-     * Current slasher admins list
+2.  **Unpause a Registered Contract**
+    *   **Action**: Admin selects a target contract and triggers unpause.
+    *   **Contract Call**: `PausableGovernor.unpause(address targetContract)`
+    *   **Caller Requirement**: Admin EOA must have `PAUSER_ROLE` on `PausableGovernor`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `Unpaused` event from `PausableGovernor` emitted.
+        *   The target contract's `paused()` function returns `false`.
+        *   State-changing functions on the target contract become operational again.
 
-3. **Grant/Revoke Risk Oracle Role**
-   * **Contract**: RiskRateOracleAdapter
-   * **Functions**: `grantRole(Constants.RISK_ORACLE_ROLE, address)`, `revokeRole(Constants.RISK_ORACLE_ROLE, address)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Address input field
-     * Grant/Revoke buttons
-     * Current oracle admins list
+3.  **Manage Pausable Contracts List (Add/Remove)**
+    *   **Context**: If new pausable contracts are deployed or existing ones need to be removed from governor control.
+    *   **Action (Add)**: Admin provides the address of a new contract that implements the pausable interface (has `pause()` and `unpause()` functions and ideally grants `PAUSER_ROLE` to the `PausableGovernor`).
+    *   **Contract Call (Add)**: `PausableGovernor.addPausableContract(address target)`
+    *   **Caller Requirement (Add)**: `DEFAULT_ADMIN_ROLE` on `PausableGovernor`.
+    *   **Testing Success (Add)**:
+        *   `PausableContractAdded` event emitted.
+        *   `PausableGovernor.isPausableContract(target)` returns `true`.
+        *   **Crucially, the `target` contract must separately grant `PAUSER_ROLE` to the `PausableGovernor`'s address for the governor to successfully call `pause/unpause` on it.** The `addPausableContract` function checks for interface support but doesn't grant roles on the target.
+    *   **Action (Remove)**: Admin provides the address of a contract to remove from governor control.
+    *   **Contract Call (Remove)**: `PausableGovernor.removePausableContract(address target)`
+    *   **Caller Requirement (Remove)**: `DEFAULT_ADMIN_ROLE` on `PausableGovernor`.
+    *   **Testing Success (Remove)**:
+        *   `PausableContractRemoved` event emitted.
+        *   `PausableGovernor.isPausableContract(target)` returns `false`.
 
-4. **Grant/Revoke Pauser Role**
-   * **Contract**: Multiple (DeveloperRegistry, DeveloperDepositEscrow, ProjectFactory, etc.)
-   * **Functions**: `grantRole(Constants.PAUSER_ROLE, address)`, `revokeRole(Constants.PAUSER_ROLE, address)`
-   * **Role Required**: `DEFAULT_ADMIN_ROLE`
-   * **UI Elements**:
-     * Contract selector
-     * Address input field
-     * Grant/Revoke buttons
-     * Current pausers list per contract
+4.  **View Governor Configuration**
+    *   **Action**: List all contracts currently managed by `PausableGovernor`.
+    *   **Contract Call**: This requires iterating through known contracts and checking `PausableGovernor.isPausableContract(address target)`. The admin panel might maintain a list based on `PausableContractAdded`/`Removed` events.
+    *   **Testing Success**: Displayed list is accurate.
 
-#### Implementation Steps
-1. Create role management dashboard
-2. Implement contract selector for role management
-3. Build interface for each role type
-4. Display current role assignments
-5. Implement grant/revoke functionality
+### 6. Treasury and Fee Management (FeeRouter)
 
-## Admin Integration Sequence
+#### Functionality Required
+1.  **Update Protocol Treasury Address**
+    *   **Action**: Admin changes the `protocolTreasury` address where a share of fees is sent.
+    *   **Contract Call**: `FeeRouter.setProtocolTreasury(address _newTreasury)`
+    *   **Caller Requirement**: `DEFAULT_ADMIN_ROLE` on `FeeRouter`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `FeeRouter.getProtocolTreasury()` returns the new address.
 
-For a new deployment, follow this integration sequence to ensure all necessary admin functionality is available:
+2.  **Update Carbon Treasury Address**
+    *   **Action**: Admin changes the `carbonTreasury` address.
+    *   **Contract Call**: `FeeRouter.setCarbonTreasury(address _newTreasury)`
+    *   **Caller Requirement**: `DEFAULT_ADMIN_ROLE` on `FeeRouter`.
+    *   **Testing Success**:
+        *   Transaction completes successfully.
+        *   `FeeRouter.getCarbonTreasury()` returns the new address.
 
-1. **Initial Admin Dashboard Setup**
-   * Prepare interface for all key admin functions
-   * Configure access control based on wallet addresses and roles
+3.  **View Fee-Related Information**
+    *   **Action**: Display current treasury addresses, project fee details.
+    *   **Contract Calls**:
+        *   `FeeRouter.getProtocolTreasury()`
+        *   `FeeRouter.getCarbonTreasury()`
+        *   `FeeRouter.getProjectFeeDetails(uint256 projectId)`
+        *   `FeeRouter.getNextPaymentInfo(uint256 projectId)`
+    *   **Event Monitoring**: `FeeRouted` to track fee distributions.
+    *   **Testing Success**: Data displayed accurately reflects on-chain values.
 
-2. **KYC System Configuration**
-   * Set up KYC document storage system (IPFS or similar)
-   * Configure KYC submission and approval workflow
-   * Grant KYC_ADMIN_ROLE to appropriate personnel
+### 7. Project and Vault Management (ProjectFactory, DirectProjectVault instances)
 
-3. **Pool Management Setup**
-   * Create initial liquidity pools
-   * Set risk levels and APR rates for each pool
-   * Monitor pool deposit activities
+#### Functionality Required
+1.  **Configure `ProjectFactory` Addresses**
+    *   **Context**: Initial setup or if any core implementation/admin address changes.
+    *   **Action**: Admin calls `setAddresses` on `ProjectFactory` to link it to `LiquidityPoolManager`, vault/escrow implementations, `RepaymentRouter`, `FeeRouter`, `RiskRateOracleAdapter`, and default admin/pauser addresses for clones.
+    *   **Contract Call**: `ProjectFactory.setAddresses(...)` with all required parameters.
+    *   **Caller Requirement**: `DEFAULT_ADMIN_ROLE` on `ProjectFactory`.
+    *   **Deployment Action**: This is done by `DeployCore.s.sol`. The admin panel might need this if these addresses change post-deployment.
+    *   **Testing Success**:
+        *   `AddressesSet` event emitted with correct parameters.
+        *   Verify stored addresses in `ProjectFactory` (e.g., `liquidityPoolManager`, `vaultImplementation`) match the inputs.
 
-4. **Risk Management Configuration**
-   * Set up risk assessment framework
-   * Configure risk level criteria
-   * Implement APR update workflow
+2.  **Manually Close Funding for a `DirectProjectVault`**
+    *   **Context**: If a high-value project's funding needs to be closed before the cap is met (e.g., by admin decision).
+    *   **Action**: Admin identifies the specific `DirectProjectVault` address and triggers funding closure.
+    *   **Contract Call**: `DirectProjectVault(vaultAddress).closeFundingManually()`
+    *   **Caller Requirement**: Admin EOA must have `DEFAULT_ADMIN_ROLE` on that specific `DirectProjectVault` instance (this role is granted to `ADMIN_FOR_VAULT_CLONES` during vault creation by `ProjectFactory`).
+    *   **Testing Success**:
+        *   `FundingClosed` event emitted from the vault.
+        *   `DirectProjectVault.isFundingClosed()` returns `true`.
+        *   Funds are transferred to the developer, developer's deposit is transferred from `DeveloperDepositEscrow` to the developer, and `DevEscrow` is notified.
 
-5. **Emergency Controls Testing**
-   * Test pause functionality for all contracts
-   * Verify unpause functionality
-   * Create emergency response procedures
+3.  **Manually Close a Loan for a `DirectProjectVault`**
+    *   **Context**: If a loan in a `DirectProjectVault` is fully repaid but not automatically closed, or for administrative closure under specific conditions.
+    *   **Action**: Admin identifies the vault and triggers loan closure.
+    *   **Contract Call**: `DirectProjectVault(vaultAddress).closeLoan()`
+    *   **Caller Requirement**: `DEFAULT_ADMIN_ROLE` on that specific `DirectProjectVault` instance. The function requires the loan to be fully repaid (`principalRepaid >= totalAssetsInvested`).
+    *   **Testing Success**:
+        *   `LoanClosed` event emitted from the vault.
+        *   `DirectProjectVault.isLoanClosed()` returns `true`.
 
-By following this sequence and implementing the detailed admin functionalities, you'll establish a comprehensive administration system for the OnGrid Protocol.
+4.  **View `DirectProjectVault` Details**
+    *   **Action**: Admin searches/selects a `DirectProjectVault` address to view its comprehensive details.
+    *   **Contract Calls**: Numerous view functions on `DirectProjectVault` like `getTotalAssetsInvested()`, `getLoanAmount()`, `getPrincipalRepaid()`, `isFundingClosed()`, `isLoanClosed()`, `investorShares(investorAddress)`, etc.
+    *   **Testing Success**: Data displayed accurately reflects the vault's state.
+
+## IV. Admin Integration Sequence Summary
+
+For a new deployment and Admin Panel setup:
+
+1.  **Deploy Contracts**: Run `DeployCore.s.sol`. Note all deployed contract addresses and admin EOAs used from `.env`.
+2.  **Admin Panel Configuration**:
+    *   Input all deployed contract addresses into the Admin Panel.
+    *   Connect with the `deployer` wallet or an EOA that has been granted `DEFAULT_ADMIN_ROLE` on the relevant contracts.
+3.  **Role Verification**:
+    *   Use the Admin Panel's role viewing functionality to verify that all roles set by `DeployCore.s.sol` (both for external admins from `.env` and inter-contract roles) are correctly assigned.
+4.  **Grant Additional/Modify Admin Roles (If Needed)**:
+    *   If `KYC_ADMIN`, `SLASHING_ADMIN`, `ORACLE_ADMIN` need to be different EOAs or if additional admins are required for these roles, use the Admin Panel (with `DEFAULT_ADMIN_ROLE` on the respective contracts) to grant these roles via the `grantRole` functions.
+    *   If other EOAs need `PAUSER_ROLE` on the `PausableGovernor`, grant it.
+5.  **Operational Functionality Testing**:
+    *   **KYC**: Test `submitKYC` and `setVerifiedStatus`.
+    *   **Pools**: Test `createPool`, `setPoolRiskLevel`.
+    *   **Risk Oracle**: Test `setProjectRiskLevel`, `pushRiskParams`, `setAssessmentInterval`.
+    *   **Pause/Unpause**: Test pausing and unpausing a non-critical registered contract via `PausableGovernor`.
+    *   **Treasury**: Test viewing treasury addresses. Changing them is a significant operation.
+6.  **User Flow Support**: Once the Admin Panel is set up and core admin roles are confirmed/assigned, the panel will be used to support user flows (e.g., KYC verification, handling defaults).
+
+This structured approach ensures that all administrative controls are correctly established and accessible for the ongoing management of the OnGrid Protocol.

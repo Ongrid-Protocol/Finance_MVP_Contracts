@@ -29,6 +29,10 @@ library Errors {
     error DeadlinePassed();
     error InvalidState(string reason);
     error ZeroAddressNotAllowed();
+    error InvalidFundingDeadline(uint32 provided);
+    error ProjectNotActive(uint8 currentState);
+    error PaymentTooEarly(uint256 nextDueDate);
+    error PaymentTooLate(uint256 daysLate);
 
     // --- KYC & Verification ---
     error NotVerified(address developer);

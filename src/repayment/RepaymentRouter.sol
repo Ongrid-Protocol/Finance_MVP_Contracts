@@ -71,6 +71,11 @@ contract RepaymentRouter is AccessControlEnumerable, Pausable, ReentrancyGuard {
      */
     mapping(uint256 => uint256) public projectPoolId; // Only relevant if funding source is PoolManager
 
+    // Payment tracking
+    mapping(uint256 => uint256) public totalRepaidByProject; // projectId => total repaid
+    mapping(uint256 => uint256) public lastPaymentTimestamp; // projectId => timestamp
+    mapping(uint256 => uint256[]) public projectPaymentHistory; // projectId => payment amounts
+
     // --- Constructor ---
     /**
      * @notice Initializes the RepaymentRouter.
@@ -170,6 +175,11 @@ contract RepaymentRouter is AccessControlEnumerable, Pausable, ReentrancyGuard {
             // Always update management fee timestamp to keep timestamps in sync
             feeRouter.updateLastMgmtFeeTimestamp(projectId);
 
+            // Track payment
+            totalRepaidByProject[projectId] += amount;
+            lastPaymentTimestamp[projectId] = block.timestamp;
+            projectPaymentHistory[projectId].push(amount);
+
             emit RepaymentRouted(projectId, payer, amount, amount, 0, 0, fundingSourceAddress);
             return; // Exit early
         }
@@ -239,6 +249,23 @@ contract RepaymentRouter is AccessControlEnumerable, Pausable, ReentrancyGuard {
         return projectPoolId[projectId];
     }
 
+    /**
+     * @notice Gets payment history for a project
+     * @param projectId The project ID
+     * @return totalRepaid Total amount repaid
+     * @return lastPayment Timestamp of last payment
+     * @return paymentCount Number of payments made
+     */
+    function getProjectPaymentSummary(uint256 projectId)
+        external
+        view
+        returns (uint256 totalRepaid, uint256 lastPayment, uint256 paymentCount)
+    {
+        totalRepaid = totalRepaidByProject[projectId];
+        lastPayment = lastPaymentTimestamp[projectId];
+        paymentCount = projectPaymentHistory[projectId].length;
+    }
+
     // --- Access Control Overrides ---
     function supportsInterface(bytes4 interfaceId)
         public
@@ -251,11 +278,11 @@ contract RepaymentRouter is AccessControlEnumerable, Pausable, ReentrancyGuard {
         bytes4 pauseSelector = bytes4(keccak256("pause()"));
         bytes4 unpauseSelector = bytes4(keccak256("unpause()"));
         bytes4 pauseInterface = pauseSelector ^ unpauseSelector;
-        
+
         if (interfaceId == pauseInterface) {
             return true;
         }
-        
+
         return super.supportsInterface(interfaceId);
     }
 }

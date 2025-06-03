@@ -43,6 +43,7 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
     struct ProjectParams {
         uint256 loanAmountRequested; // In USDC smallest unit (wei)
         uint48 requestedTenor; // Duration in days
+        uint32 fundingDeadline; // Selected deadline: 30, 60, 90, or 180 days
         string metadataCID; // IPFS CID or similar for project details
     }
 
@@ -55,6 +56,7 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         uint256 financedAmount;
         uint256 depositAmount;
         uint48 requestedTenor;
+        uint32 fundingDeadline; // Add fundingDeadline to context
         address vaultAddress;
         address devEscrowAddress;
     }
@@ -78,6 +80,11 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
 
     // Counter
     uint256 public projectCounter;
+
+    // Project tracking for portfolio views
+    mapping(address => uint256[]) public userProjects; // developer => projectIds
+    mapping(uint256 => uint8) public projectStates; // projectId => state
+    mapping(uint256 => uint64) public projectFundingDeadlines; // projectId => deadline timestamp
 
     // --- Events ---
     /**
@@ -243,6 +250,21 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         projectCounter++;
         projectId = projectCounter;
 
+        // Validate funding deadline
+        if (
+            params.fundingDeadline != Constants.FUNDING_DEADLINE_30_DAYS
+                && params.fundingDeadline != Constants.FUNDING_DEADLINE_2_MONTHS
+                && params.fundingDeadline != Constants.FUNDING_DEADLINE_3_MONTHS
+                && params.fundingDeadline != Constants.FUNDING_DEADLINE_6_MONTHS
+        ) {
+            revert Errors.InvalidValue("Invalid funding deadline");
+        }
+
+        // Set project state and deadline
+        projectStates[projectId] = Constants.PROJECT_STATE_PENDING_DEPOSIT;
+        projectFundingDeadlines[projectId] = uint64(block.timestamp + params.fundingDeadline);
+        userProjects[developer].push(projectId);
+
         // --- Deposit Handling ---
         uint256 totalProjectCost = params.loanAmountRequested;
         uint256 depositAmount =
@@ -252,6 +274,9 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         if (depositAmount == 0) revert Errors.InvalidAmount(0);
 
         depositEscrow.fundDeposit(projectId, developer, depositAmount);
+
+        // Update state to funding open
+        projectStates[projectId] = Constants.PROJECT_STATE_FUNDING_OPEN;
 
         // --- Project is now active for funding ---
         // The deposit is proof that the project can now seek funding
@@ -266,11 +291,12 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
                 revert Errors.NotInitialized(); // Need Pool Manager address
             }
 
-            // Convert ProjectParams to ILiquidityPoolManager.ProjectParams with adjusted amount
+            // Convert ProjectParams to ILiquidityPoolManager.ProjectParams with adjusted values
             ILiquidityPoolManager.ProjectParams memory poolParams = ILiquidityPoolManager.ProjectParams({
                 loanAmountRequested: financedAmount, // Only the 80% financed portion
                 totalProjectCost: totalProjectCost, // Total cost including deposit
                 requestedTenor: params.requestedTenor,
+                fundingDeadline: params.fundingDeadline,
                 metadataCID: params.metadataCID
             });
 
@@ -347,6 +373,7 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
             financedAmount: _financedAmount,
             depositAmount: _depositAmount,
             requestedTenor: _params.requestedTenor,
+            fundingDeadline: _params.fundingDeadline, // Add fundingDeadline to context
             vaultAddress: address(0),
             devEscrowAddress: address(0)
         });
@@ -409,7 +436,8 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
             loanTenor: context.requestedTenor,
             initialAprBps: 0, // Initial APR set to 0, can be updated by oracle
             depositEscrowAddress: address(depositEscrow),
-            riskOracleAdapter: riskOracleAdapterAddress
+            riskOracleAdapter: riskOracleAdapterAddress,
+            fundingDeadline: context.fundingDeadline // Now access from context
         });
 
         try IProjectVault(vaultAddress).initialize(initParams) {}
@@ -568,11 +596,11 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         bytes4 pauseSelector = bytes4(keccak256("pause()"));
         bytes4 unpauseSelector = bytes4(keccak256("unpause()"));
         bytes4 pauseInterface = pauseSelector ^ unpauseSelector;
-        
+
         if (interfaceId == pauseInterface) {
             return true;
         }
-        
+
         return super.supportsInterface(interfaceId);
     }
 }
