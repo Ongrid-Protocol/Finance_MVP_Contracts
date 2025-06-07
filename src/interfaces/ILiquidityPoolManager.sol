@@ -190,4 +190,10 @@ interface ILiquidityPoolManager {
             uint256[] memory outstandingAmounts,
             uint8[] memory states
         );
+
+    /**
+     * @notice Gets information for all created liquidity pools.
+     * @return PoolInfo[] An array of PoolInfo structs for all pools.
+     */
+    function getAllPools() external view returns (PoolInfo[] memory);
 }

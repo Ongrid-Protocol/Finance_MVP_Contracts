@@ -77,7 +77,7 @@ contract DeployCore is Script {
     }
 
     function run() public {
-        address deployer = 0xdB487A73A5b7EF3e773ec115F8C209C12E4EBA37;
+        address deployer = 0x0a1978f4CeC6AfA754b6Fa11b7D141e529b22741;
         vm.startBroadcast();
 
         console.log("Deployer Address (from --account):", deployer);

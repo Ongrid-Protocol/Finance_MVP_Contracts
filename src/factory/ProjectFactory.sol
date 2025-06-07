@@ -81,6 +81,9 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
     // Counter
     uint256 public projectCounter;
 
+    // Add an array to track high-value vault addresses for discovery
+    address[] public highValueVaults;
+
     // Project tracking for portfolio views
     mapping(address => uint256[]) public userProjects; // developer => projectIds
     mapping(uint256 => uint8) public projectStates; // projectId => state
@@ -384,6 +387,9 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         // Step 2: Setup vault permissions
         _setupVaultPermissions(context);
 
+        // Add vault to public array for discovery
+        highValueVaults.push(context.vaultAddress);
+
         // Step 3: Configure repayment settings
         _configureRepaymentSettings(context, _params.loanAmountRequested);
 
@@ -549,6 +555,16 @@ contract ProjectFactory is Initializable, AccessControlEnumerable, Pausable, Ree
         if (!repaymentRouterSuccess) {
             revert Errors.InvalidState("Failed to set funding source in RepaymentRouter");
         }
+    }
+
+    // --- View Functions ---
+
+    /**
+     * @notice Gets all deployed DirectProjectVault addresses for discovery.
+     * @return address[] An array of vault contract addresses.
+     */
+    function getAllHighValueProjects() external view returns (address[] memory) {
+        return highValueVaults;
     }
 
     // --- Pausable Functions ---
